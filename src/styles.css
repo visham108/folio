@@ -590,9 +590,6 @@ textarea.input { resize: vertical; line-height: 1.55; }
 .match-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .match-body b { font: 500 1.2rem var(--serif); margin-top: 4px; }
 .match-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.ai-verdict { display: inline-flex; align-items: flex-start; gap: 6px; margin-top: 8px; font-size: 0.85rem; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); }
-.ai-verdict svg { flex: none; margin-top: 3px; color: var(--accent); }
-.ai-verdict.same { background: color-mix(in oklab, var(--good) 12%, var(--surface)); }
 .attached { display: flex; align-items: center; gap: 14px; padding: 12px 14px; margin-bottom: 20px; }
 .attached > div { flex: 1; min-width: 0; }
 .add-form { display: grid; gap: 16px; }

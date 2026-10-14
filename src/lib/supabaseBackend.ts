@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import type { Backend, CoverAnalysis } from './backend'
+import type { Backend } from './backend'
 import type { Edition, Entry, LogPoint, Read, Settings, Shelf, Snapshot, Work } from './types'
 import { DEFAULT_SETTINGS } from './types'
 
@@ -104,15 +104,6 @@ export async function createCloudBackend(): Promise<Backend | null> {
   }
   const upsert = (table: string, rows: Row[]) => (rows.length ? ok(sb.from(table).upsert(rows)) : Promise.resolve())
 
-  const invoke = async <T,>(fn: string, body: Record<string, unknown>): Promise<T | null> => {
-    const { data, error } = await sb.functions.invoke(fn, { body })
-    if (error) {
-      console.warn(`${fn} unavailable`, error)
-      return null
-    }
-    return data as T
-  }
-
   return {
     kind: 'cloud',
     userLabel: user.email ?? user.user_metadata?.full_name,
@@ -181,19 +172,6 @@ export async function createCloudBackend(): Promise<Backend | null> {
       const { error } = await sb.storage.from('covers').upload(path, blob, { contentType: 'image/jpeg', cacheControl: '31536000' })
       if (error) throw error
       return sb.storage.from('covers').getPublicUrl(path).data.publicUrl
-    },
-    async aiMatch(q, candidates) {
-      return invoke('match-book', {
-        query: q,
-        candidates: candidates.map((c) => ({
-          id: c.work.id, title: c.work.title, subtitle: c.work.subtitle, authors: c.work.authors,
-          firstPublished: c.work.firstPublished,
-          editionTitles: [...new Set(c.editions.map((e) => e.title).filter(Boolean))],
-        })),
-      })
-    },
-    async aiAnalyzeCover(jpegBase64) {
-      return invoke<CoverAnalysis>('analyze-cover', { image: jpegBase64 })
     },
     async signOut() {
       await sb.auth.signOut()

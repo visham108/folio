@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   ArrowLeft, BookMarked, Check, ChevronDown, Headphones, Heart, Library as LibIcon, Pencil, Plus, RotateCcw, Tablet, Trash2,
 } from 'lucide-react'
+import { nameCase, titleCase } from '../lib/titleCase'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Cover } from '../components/Cover'
@@ -265,7 +266,7 @@ export function BookPage() {
                   )
                 })}
               </div>
-              <Chips value={entry.tags} onChange={(tags) => store.updateEntry(entry.id, { tags })} placeholder="Add a tag…" />
+              <Chips value={entry.tags} onChange={(tags) => store.updateEntry(entry.id, { tags })} normalize={titleCase} placeholder="Add a tag…" />
               <label className="check">
                 <input type="checkbox" checked={entry.owned} onChange={(e) => store.updateEntry(entry.id, { owned: e.target.checked })} />
                 I own a copy
@@ -375,17 +376,17 @@ function WorkEditor({ open, onClose, workId }: { open: boolean; onClose: () => v
   const ok = d.title.trim() && d.authors.length
   return (
     <Sheet open={open} onClose={onClose} title="Book details" wide footer={
-      <button className="btn btn-primary" disabled={!ok} onClick={() => { store.saveWork(d); onClose() }}>Save</button>
+      <button className="btn btn-primary" disabled={!ok} onClick={() => { store.saveWork({ ...d, title: titleCase(d.title), subtitle: d.subtitle ? titleCase(d.subtitle) : undefined }); onClose() }}>Save</button>
     }>
       <div className="form-grid">
-        <Field label="Title" required className="span-2"><input className="input" value={d.title} onChange={(e) => setD({ ...d, title: e.target.value })} /></Field>
-        <Field label="Subtitle" className="span-2"><input className="input" value={d.subtitle ?? ''} onChange={(e) => setD({ ...d, subtitle: e.target.value || undefined })} /></Field>
-        <Field label="Authors" required className="span-2"><Chips value={d.authors} onChange={(authors) => setD({ ...d, authors })} /></Field>
-        <Field label="Series"><input className="input" value={d.series ?? ''} onChange={(e) => setD({ ...d, series: e.target.value || undefined })} /></Field>
+        <Field label="Title" required className="span-2"><input className="input" value={d.title} onChange={(e) => setD({ ...d, title: e.target.value })} onBlur={(e) => setD({ ...d, title: titleCase(e.target.value) })} /></Field>
+        <Field label="Subtitle" className="span-2"><input className="input" value={d.subtitle ?? ''} onChange={(e) => setD({ ...d, subtitle: e.target.value || undefined })} onBlur={(e) => setD({ ...d, subtitle: titleCase(e.target.value) || undefined })} /></Field>
+        <Field label="Authors" required className="span-2"><Chips value={d.authors} onChange={(authors) => setD({ ...d, authors })} normalize={nameCase} /></Field>
+        <Field label="Series"><input className="input" value={d.series ?? ''} onChange={(e) => setD({ ...d, series: e.target.value || undefined })} onBlur={(e) => setD({ ...d, series: titleCase(e.target.value) || undefined })} /></Field>
         <Field label="Number in series"><input className="input" inputMode="decimal" value={d.seriesIndex ?? ''} onChange={(e) => setD({ ...d, seriesIndex: parseFloat(e.target.value) || undefined })} /></Field>
         <Field label="First published"><input className="input" inputMode="numeric" value={d.firstPublished ?? ''} onChange={(e) => setD({ ...d, firstPublished: parseInt(e.target.value) || undefined })} /></Field>
         <Field label="Original language"><input className="input" value={d.originalLanguage ?? ''} onChange={(e) => setD({ ...d, originalLanguage: e.target.value || undefined })} /></Field>
-        <Field label="Genres" className="span-2"><Chips value={d.genres} onChange={(genres) => setD({ ...d, genres })} /></Field>
+        <Field label="Genres" className="span-2"><Chips value={d.genres} onChange={(genres) => setD({ ...d, genres })} normalize={titleCase} /></Field>
         <Field label="Description" className="span-2"><textarea className="input" rows={4} value={d.description ?? ''} onChange={(e) => setD({ ...d, description: e.target.value || undefined })} /></Field>
       </div>
     </Sheet>

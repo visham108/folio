@@ -154,11 +154,13 @@ export function Field({ label, hint, required, children, className = '' }: { lab
 }
 
 /** Free-text tokens (authors, narrators, genres). Enter or comma commits. */
-export function Chips({ value, onChange, placeholder, suggestions = [] }: { value: string[]; onChange: (v: string[]) => void; placeholder?: string; suggestions?: string[] }) {
+export function Chips({ value, onChange, placeholder, suggestions = [], normalize = (s: string) => s }: {
+  value: string[]; onChange: (v: string[]) => void; placeholder?: string; suggestions?: string[]; normalize?: (s: string) => string
+}) {
   const [text, setText] = useState('')
   const listId = useId()
   const commit = (raw = text) => {
-    const t = raw.trim().replace(/,$/, '')
+    const t = normalize(raw.trim().replace(/,$/, ''))
     if (t && !value.includes(t)) onChange([...value, t])
     setText('')
   }

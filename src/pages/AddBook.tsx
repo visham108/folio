@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowLeft, Camera, Check, Loader2, PenLine, ScanLine, Search, Sparkles, Undo2, X } from 'lucide-react'
+import { ArrowLeft, Camera, Check, Loader2, PenLine, ScanLine, Search, Undo2, X } from 'lucide-react'
+import { nameCase, titleCase } from '../lib/titleCase'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Cover } from '../components/Cover'
@@ -7,7 +8,6 @@ import { CoverStudio } from '../components/CoverStudio'
 import { blankEdition, EditionFields, type EditionDraft } from '../components/EditionForm'
 import { Scanner } from '../components/Scanner'
 import { Chips, Field, Segmented, Stars } from '../components/ui'
-import type { CoverAnalysis } from '../lib/backend'
 import { searchBooks, type LookupResult } from '../lib/lookup'
 import { confidenceOf, findCandidates, type MatchCandidate } from '../lib/match'
 import type { Edition, Status, Work } from '../lib/types'
@@ -127,7 +127,7 @@ function SearchStep({ onPick, onManual, onOpen }: {
       <div className="add-modes">
         <button className="mode" onClick={() => setScan(true)}><ScanLine size={20} /><b>Scan barcode</b><span>Fastest for print books</span></button>
         <button className="mode" onClick={() => fileRef.current?.click()}><Camera size={20} /><b>Photograph the cover</b><span>We’ll tidy the photo up</span></button>
-        <button className="mode" onClick={() => onManual({ title: cleanIsbn(q) ? '' : q })}><PenLine size={20} /><b>Enter it yourself</b><span>For anything not listed</span></button>
+        <button className="mode" onClick={() => onManual({ title: cleanIsbn(q) ? '' : titleCase(q) })}><PenLine size={20} /><b>Enter it yourself</b><span>For anything not listed</span></button>
       </div>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { setPhoto(e.target.files?.[0] ?? null); e.target.value = '' }} />
 
@@ -179,19 +179,16 @@ function SearchStep({ onPick, onManual, onOpen }: {
         </section>
       )}
       {!loading && q.trim().length >= 2 && !results.length && !known.length && (
-        <p className="muted center pad">No results online. <button className="link" onClick={() => onManual({ title: q })}>Add “{q}” yourself</button></p>
+        <p className="muted center pad">No results online. <button className="link" onClick={() => onManual({ title: titleCase(q) })}>Add “{q}” yourself</button></p>
       )}
 
       <Scanner open={scan} onClose={() => setScan(false)} onIsbn={(isbn) => { setScan(false); setQ(isbn) }} />
       <CoverStudio
         file={photo}
         onClose={() => setPhoto(null)}
-        onDone={(url, a?: CoverAnalysis) => {
+        onDone={(url) => {
           setPhoto(null)
-          onManual(
-            { title: a?.title ?? '', subtitle: a?.subtitle, authors: a?.authors ?? [] },
-            { coverUrl: url, format: a?.format ?? 'paperback' },
-          )
+          onManual({ title: cleanIsbn(q) ? '' : titleCase(q) }, { coverUrl: url })
         }}
       />
     </>
@@ -214,7 +211,6 @@ function FormStep({ work, setWork, edition, setEdition, onBack }: {
   const [useExisting, setUseExisting] = useState<Edition | null>(null)
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
   const [remote, setRemote] = useState<{ works: Work[]; editions: Edition[] }>({ works: [], editions: [] })
-  const [ai, setAi] = useState<{ id: string; state: 'busy' | 'same' | 'different' | 'unknown'; reason?: string } | null>(null)
   const [touched, setTouched] = useState(false)
 
   // Shared catalogue lookups for duplicate detection (debounced).
@@ -244,21 +240,13 @@ function FormStep({ work, setWork, edition, setEdition, onBack }: {
     store.remember([c.work], c.editions)
   }
 
-  const askAi = async (c: MatchCandidate) => {
-    if (!store.backend?.aiMatch) return
-    setAi({ id: c.work.id, state: 'busy' })
-    const res = await store.backend.aiMatch({ title: work.title, authors: work.authors }, [c]).catch(() => null)
-    if (!res) setAi({ id: c.work.id, state: 'unknown', reason: 'The AI check isn’t available right now.' })
-    else setAi({ id: c.work.id, state: res.workId ? 'same' : 'different', reason: res.reason })
-  }
-
   const save = () => {
     setTouched(true)
     if (!valid) return
     const w = attach?.work
     const entry = store.addBook({
       work: w ?? {
-        title: work.title.trim(), subtitle: work.subtitle?.trim() || undefined, authors: work.authors, series: work.series,
+        title: titleCase(work.title), subtitle: work.subtitle ? titleCase(work.subtitle) : undefined, authors: work.authors, series: work.series ? titleCase(work.series) : undefined,
         seriesIndex: work.seriesIndex, genres: work.genres, firstPublished: work.firstPublished, description: work.description,
       },
       edition: useExisting ?? edition,
@@ -288,19 +276,11 @@ function FormStep({ work, setWork, edition, setEdition, onBack }: {
               <b>{top.work.title}</b>
               <span>{top.work.authors.join(', ')} · {top.editions.length} {top.editions.length === 1 ? 'edition' : 'editions'}</span>
               <span className="muted small">{top.reason}</span>
-              {ai?.id === top.work.id && ai.state !== 'busy' && (
-                <span className={`ai-verdict ${ai.state}`}><Sparkles size={12} /> {ai.state === 'same' ? 'Same book. ' : ai.state === 'different' ? 'Different book. ' : ''}{ai.reason}</span>
-              )}
               <div className="match-actions">
                 <button className="btn btn-primary sm" onClick={() => doAttach(top)}>
                   {top.sameEdition ? 'Use this edition' : 'Add as another edition'}
                 </button>
                 <button className="btn btn-ghost sm" onClick={() => setDismissed(new Set([...dismissed, top.work.id]))}>It’s a different book</button>
-                {confidenceOf(top) === 'possible' && store.backend?.aiMatch && (
-                  <button className="btn btn-ghost sm" onClick={() => askAi(top)} disabled={ai?.state === 'busy'}>
-                    {ai?.state === 'busy' ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} Ask AI
-                  </button>
-                )}
               </div>
             </div>
           </motion.div>
@@ -321,15 +301,15 @@ function FormStep({ work, setWork, edition, setEdition, onBack }: {
             <h3>The book</h3>
             <div className="form-grid">
               <Field label="Title" required className="span-2" hint={touched && errors.title ? <span className="err">{errors.title}</span> : undefined}>
-                <input className="input" value={work.title} onChange={(e) => setWork({ ...work, title: e.target.value })} placeholder="The Left Hand of Darkness" />
+                <input className="input" value={work.title} onChange={(e) => setWork({ ...work, title: e.target.value })} onBlur={(e) => setWork({ ...work, title: titleCase(e.target.value) })} placeholder="The Left Hand of Darkness" />
               </Field>
               <Field label="Author(s)" required className="span-2" hint={touched && errors.authors ? <span className="err">{errors.authors}</span> : 'Press Enter after each name'}>
-                <Chips value={work.authors} onChange={(authors) => setWork({ ...work, authors })} placeholder="Ursula K. Le Guin" suggestions={[...new Set(store.data.works.flatMap((w) => w.authors))]} />
+                <Chips value={work.authors} onChange={(authors) => setWork({ ...work, authors })} normalize={nameCase} placeholder="Ursula K. Le Guin" suggestions={[...new Set(store.data.works.flatMap((w) => w.authors))]} />
               </Field>
-              <Field label="Subtitle" className="span-2"><input className="input" value={work.subtitle ?? ''} onChange={(e) => setWork({ ...work, subtitle: e.target.value || undefined })} /></Field>
-              <Field label="Series"><input className="input" value={work.series ?? ''} onChange={(e) => setWork({ ...work, series: e.target.value || undefined })} /></Field>
+              <Field label="Subtitle" className="span-2"><input className="input" value={work.subtitle ?? ''} onChange={(e) => setWork({ ...work, subtitle: e.target.value || undefined })} onBlur={(e) => setWork({ ...work, subtitle: titleCase(e.target.value) || undefined })} /></Field>
+              <Field label="Series"><input className="input" value={work.series ?? ''} onChange={(e) => setWork({ ...work, series: e.target.value || undefined })} onBlur={(e) => setWork({ ...work, series: titleCase(e.target.value) || undefined })} /></Field>
               <Field label="#"><input className="input" inputMode="decimal" value={work.seriesIndex ?? ''} onChange={(e) => setWork({ ...work, seriesIndex: parseFloat(e.target.value) || undefined })} /></Field>
-              <Field label="Genres" className="span-2"><Chips value={work.genres} onChange={(genres) => setWork({ ...work, genres })} placeholder="Fantasy, Memoir…" suggestions={[...new Set(store.data.works.flatMap((w) => w.genres))]} /></Field>
+              <Field label="Genres" className="span-2"><Chips value={work.genres} onChange={(genres) => setWork({ ...work, genres })} normalize={titleCase} placeholder="Fantasy, Memoir…" suggestions={[...new Set(store.data.works.flatMap((w) => w.genres))]} /></Field>
               <Field label="First published"><input className="input" inputMode="numeric" value={work.firstPublished ?? ''} onChange={(e) => setWork({ ...work, firstPublished: parseInt(e.target.value, 10) || undefined })} /></Field>
             </div>
           </section>
@@ -343,7 +323,6 @@ function FormStep({ work, setWork, edition, setEdition, onBack }: {
               onChange={setEdition}
               title={attach?.work.title ?? work.title}
               authors={attach?.work.authors ?? work.authors}
-              onAnalysis={(a) => setWork({ ...work, title: work.title || a.title || '', authors: work.authors.length ? work.authors : a.authors ?? [] })}
             />
           </section>
         )}

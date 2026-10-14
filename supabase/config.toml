@@ -1,7 +1,0 @@
-# Minimal config for `supabase functions deploy`. Both functions require a
-# signed-in user (the default JWT check), so the API key can't be abused anonymously.
-[functions.match-book]
-verify_jwt = true
-
-[functions.analyze-cover]
-verify_jwt = true

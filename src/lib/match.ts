@@ -4,14 +4,10 @@ import { cleanIsbn } from './util'
 /**
  * Duplicate / edition detection.
  *
- * Stage 1 (here, instant, offline): ISBN equality, then fuzzy title + author
- * similarity that is robust to subtitles, series suffixes, articles,
- * punctuation, diacritics and initials ("J.R.R. Tolkien" vs "John Ronald
- * Reuel Tolkien").
- *
- * Stage 2 (optional, server): ambiguous candidates are sent to the
- * `match-book` edge function, where Claude decides whether it's the same work
- * (e.g. translated titles, "Philosopher's" vs "Sorcerer's Stone").
+ * Runs instantly and offline: ISBN/ASIN equality first, then fuzzy title +
+ * author similarity that is robust to subtitles, series suffixes, articles,
+ * punctuation, diacritics, typos and initials ("J.R.R. Tolkien" vs "John
+ * Ronald Reuel Tolkien"). The person always confirms the suggestion.
  */
 
 const ARTICLES = /^(the|a|an|le|la|les|el|los|las|der|die|das)\s+/

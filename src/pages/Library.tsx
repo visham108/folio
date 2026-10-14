@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { Grid2x2, List, Plus, Search, X } from 'lucide-react'
+import { titleCase } from '../lib/titleCase'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { BookTile } from '../components/BookTile'
@@ -182,7 +183,7 @@ export function Library() {
             className="btn btn-primary"
             disabled={!shelfName.trim()}
             onClick={() => {
-              const s = { id: uid(), name: shelfName.trim(), position: data.shelves.length }
+              const s = { id: uid(), name: titleCase(shelfName), position: data.shelves.length }
               store.saveShelf(s)
               setShelfName('')
               setNewShelf(false)

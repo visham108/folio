@@ -1,21 +1,20 @@
 import { Loader2, RotateCw, Sparkles, Wand2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { CoverAnalysis } from '../lib/backend'
-import { canvasToBase64, canvasToBlob, detectCorners, enhance, fileToCanvas, warp, type Pt } from '../lib/image'
+import { canvasToBlob, detectCorners, enhance, fileToCanvas, warp, type Pt } from '../lib/image'
 import { useStore } from '../state/store'
 import { useToast } from '../state/toast'
 import { Sheet } from './ui'
 
 /**
  * Turn a phone snap of a book into a clean, flat cover:
- *  1. find the book (AI when configured, otherwise on-device detection)
+ *  1. find the book against its background (on-device)
  *  2. let the user nudge the four corners
  *  3. perspective-correct + auto colour/contrast/sharpen
  */
 export function CoverStudio({ file, onClose, onDone }: {
   file: File | null
   onClose: () => void
-  onDone: (url: string, analysis?: CoverAnalysis) => void
+  onDone: (url: string) => void
 }) {
   const { backend } = useStore()
   const toast = useToast()
@@ -24,7 +23,6 @@ export function CoverStudio({ file, onClose, onDone }: {
   const [doEnhance, setDoEnhance] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [preview, setPreview] = useState<string>()
-  const [analysis, setAnalysis] = useState<CoverAnalysis>()
   const stage = useRef<HTMLDivElement>(null)
   const drag = useRef<number | null>(null)
 
@@ -32,21 +30,12 @@ export function CoverStudio({ file, onClose, onDone }: {
     if (!file) return
     let live = true
     setBusy('Reading photo…')
-    setAnalysis(undefined)
     fileToCanvas(file)
-      .then(async (c) => {
+      .then((c) => {
         if (!live) return
         setSrc(c)
         setCorners(detectCorners(c))
         setBusy(null)
-        if (backend?.aiAnalyzeCover) {
-          setBusy('Finding the book…')
-          const a = await backend.aiAnalyzeCover(canvasToBase64(c)).catch(() => null)
-          if (!live) return
-          if (a?.corners?.length === 4) setCorners(a.corners)
-          if (a) setAnalysis(a)
-          setBusy(null)
-        }
       })
       .catch(() => { toast('Couldn’t open that image', { tone: 'error' }); onClose() })
     return () => { live = false }
@@ -91,7 +80,7 @@ export function CoverStudio({ file, onClose, onDone }: {
       let out = warp(src, corners, 1200)
       if (doEnhance) out = enhance(out)
       const url = await backend.uploadCover(await canvasToBlob(out))
-      onDone(url, analysis)
+      onDone(url)
     } catch (e) {
       toast('Upload failed: ' + (e as Error).message, { tone: 'error' })
     } finally {
@@ -155,7 +144,6 @@ export function CoverStudio({ file, onClose, onDone }: {
           <span className="kicker">Result</span>
           {preview ? <img src={preview} alt="Cropped cover preview" /> : <div className="studio-ph" />}
           {busy && src && <p className="muted small"><Loader2 size={12} className="spin" /> {busy}</p>}
-          {analysis?.title && <p className="muted small">Looks like <b>{analysis.title}</b>{analysis.authors?.length ? ` by ${analysis.authors.join(', ')}` : ''}. We’ll fill those in.</p>}
           <p className="muted tiny">Drag the corners to the edges of the cover. We straighten it, fix the lighting and sharpen it.</p>
         </div>
       </div>

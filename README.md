@@ -8,11 +8,12 @@ rereads, editions and stats that are worth looking at.
 | Area | What it does |
 |---|---|
 | **Works & editions** | One entry per book, with many editions (paperback, hardcover, ebook, audiobook, translations, retitled releases). You pick which edition is "yours". |
-| **Duplicate detection** | When you add a book, Folio checks your library and the shared catalogue for the same book: ISBN first, then fuzzy title/author matching that copes with subtitles, series suffixes, initials and typos. For borderline cases an optional AI check (Claude) makes the call. Matches become a new edition, not a duplicate. |
+| **Duplicate detection** | When you add a book, Folio checks your library and the shared catalogue for the same book: ISBN first, then fuzzy title/author matching that copes with subtitles, series suffixes, initials and typos. You confirm, and the match becomes a new edition rather than a duplicate. |
 | **Rereads** | Every pass through a book is its own *read* with its own dates, edition and rating. You can reread on audio after a print read. |
 | **Piles & shelves** | Want to read · Reading · Read · Paused · DNF, plus your own shelves, tags, favourites and "I own this". |
 | **Adding books** | Search Google Books and Open Library, scan the ISBN barcode with your phone camera, photograph the cover, or type it in. |
-| **Cover studio** | Photograph a cover and Folio finds the book, straightens the perspective, fixes colour and contrast, and sharpens it. With AI on, it also reads the title and author off the cover. |
+| **Cover studio** | Photograph a cover and Folio finds the book, straightens the perspective, fixes colour and contrast, and sharpens it. Books without a cover get a generated typographic one. |
+| **Tidy data** | Anything typed in is converted to title case: "the left hand of darkness" becomes *The Left Hand of Darkness*, "j.r.r. tolkien" becomes *J.R.R. Tolkien*. Deliberate casing such as "McCarthy" or "NASA" is kept. |
 | **Stats** | Books, pages, hours and *combined* (audio converted to page-equivalents, adjustable) by month and by year, split by format; a reading-days heatmap; streaks; goal pace; longest, shortest and fastest reads; ratings, authors and genres; your year as a shelf of covers. Every chart has a table view. |
 | **Goodreads import** | Drop in the Goodreads export CSV. Shelves, ratings, reviews, dates and read counts all come across, matched against the catalogue. |
 | **Your data** | JSON export/restore at any time. |
@@ -51,24 +52,6 @@ With no Supabase configured, the app runs in **on-device mode**: everything is s
 
 Sessions persist, so you stay signed in until you sign out.
 
-### Optional: AI features
-
-Two Supabase Edge Functions call Claude with your Anthropic API key, kept server-side and only callable by
-signed-in users:
-
-* `match-book` decides borderline "is this the same book?" cases (translations, UK/US titles, series volumes).
-* `analyze-cover` finds the cover's corners in a photo and reads the title, author and format.
-
-```bash
-supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
-supabase functions deploy match-book
-supabase functions deploy analyze-cover
-```
-
-Requests use server-side refusal fallbacks (`fallbacks: "default"`), so a rare classifier decline is
-retried on Anthropic's recommended fallback model. Without the functions deployed, Folio uses its on-device
-matcher and cover detection, and the "Ask AI" button reports that the check isn't available.
-
 ## Deploying to GitHub Pages
 
 1. Push this repository to GitHub.
@@ -79,20 +62,6 @@ matcher and cover detection, and the "Ask AI" button reports that the check isn'
 
 The app uses hash routing and relative asset paths, so it works from any sub-path.
 
-## Phone apps (next step)
-
-The app is already an installable PWA (Share → *Add to Home Screen* on iPhone). For App Store and Play
-Store builds, wrap the same build with [Capacitor](https://capacitorjs.com):
-
-```bash
-npm i @capacitor/core @capacitor/cli @capacitor/ios @capacitor/android
-npx cap init Folio app.folio.reader --web-dir dist
-npm run build && npx cap add ios && npx cap add android
-```
-
-Native camera and barcode plugins can then replace the web camera, and Google sign-in moves to the
-native flow with a deep-link redirect.
-
 ## Code map
 
 ```
@@ -102,13 +71,13 @@ src/
   lib/stats.ts            completions, yearly summaries, heatmap, streaks
   lib/image.ts            cover detection, perspective warp, enhancement
   lib/goodreads.ts        CSV import
+  lib/titleCase.ts        title/name casing for typed input
   lib/lookup.ts           Google Books + Open Library search
   lib/localBackend.ts     on-device storage (IndexedDB)
-  lib/supabaseBackend.ts  cloud storage, auth, edge-function calls
+  lib/supabaseBackend.ts  cloud storage and auth
   state/store.tsx         in-memory library with optimistic writes
   pages/                  Today, Library, Book, Add, Stats, Settings, Login
   components/             covers, charts, sheets, cover studio, scanner…
 supabase/
   migrations/             schema + RLS
-  functions/              match-book, analyze-cover (Claude)
 ```

@@ -1,4 +1,5 @@
 import { Download, FileUp, LogOut, Moon, Sparkles, Sun, SunMoon, Trash2, Upload } from 'lucide-react'
+import { nameCase } from '../lib/titleCase'
 import { useEffect, useRef, useState } from 'react'
 import { Field, Segmented } from '../components/ui'
 import { importGoodreads } from '../lib/goodreads'
@@ -69,7 +70,10 @@ export function SettingsPage() {
       <section className="card form-card">
         <h3>You</h3>
         <div className="form-grid">
-          <Field label="Name"><input className="input" defaultValue={s.displayName ?? ''} onBlur={(e) => store.saveSettings({ displayName: e.target.value || undefined })} placeholder="What should we call you?" /></Field>
+          <Field label="Name"><input className="input" defaultValue={s.displayName ?? ''} onBlur={(e) => {
+            e.target.value = nameCase(e.target.value)
+            store.saveSettings({ displayName: e.target.value || undefined })
+          }} placeholder="What should we call you?" /></Field>
           <Field label="Books per year goal">
             <input className="input" inputMode="numeric" value={goal} onChange={(e) => setGoal(e.target.value)} onBlur={() => {
               const n = parseInt(goal, 10)
