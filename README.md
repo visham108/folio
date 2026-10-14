@@ -58,8 +58,8 @@ Sessions persist, so you stay signed in until you sign out.
 
 1. Push this repository to GitHub.
 2. Repository → Settings → Pages → Source: **GitHub Actions**.
-3. Repository → Settings → Secrets and variables → Actions → **Variables**: add `VITE_SUPABASE_URL` and
-   `VITE_SUPABASE_ANON_KEY` (the anon key is meant to be public; row-level security protects the data).
+3. The Supabase URL and publishable key live in `.env.production` (they're public by design;
+   row-level security protects the data).
 4. Push to `main`. The workflow in `.github/workflows/deploy.yml` builds and publishes the site.
 
 The app uses hash routing and relative asset paths, so it works from any sub-path.
