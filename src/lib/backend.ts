@@ -8,6 +8,10 @@ import type { Edition, Entry, LogPoint, Read, Settings, Shelf, Snapshot, Work } 
 export interface Backend {
   kind: 'local' | 'cloud'
   userLabel?: string
+  /** Signed-in user id (cloud only). */
+  userId?: string
+  /** The single super admin may edit or remove any catalogue record. */
+  isAdmin: boolean
   loadAll(): Promise<Snapshot>
   saveWork(w: Work): Promise<void>
   saveEdition(e: Edition): Promise<void>
@@ -23,8 +27,25 @@ export interface Backend {
   saveMany(s: Partial<Snapshot>): Promise<void>
   /** Search the shared catalogue (everything every user has added). */
   searchCatalog(title: string, authors: string[]): Promise<{ works: Work[]; editions: Edition[] }>
+  /** Admin only: remove an edition from the shared catalogue. */
+  deleteEdition(id: string): Promise<void>
+  /** Admin only: fold a duplicate book into another (editions and readers' shelves move with it). */
+  mergeWorks(fromId: string, intoId: string): Promise<void>
+  /** Admin only: recent catalogue changes for a book and its editions. */
+  history(recordIds: string[]): Promise<CatalogueChange[]>
   /** Store a processed cover image; returns a URL usable in <img>. */
   uploadCover(blob: Blob): Promise<string>
   signOut?(): Promise<void>
   wipe(): Promise<void>
+}
+
+export interface CatalogueChange {
+  id: number
+  table: 'works' | 'editions'
+  recordId: string
+  action: 'insert' | 'update' | 'delete'
+  changedBy?: string
+  changedAt: string
+  /** Fields whose value changed (for updates). */
+  fields: string[]
 }

@@ -49,7 +49,7 @@ export function Home() {
             <Plus size={22} /><b>Add a book</b><span>Search, scan a barcode, or snap the cover.</span>
           </button>
           <button className="onboard-card" onClick={() => nav('/settings#import')}>
-            <ArrowRight size={22} /><b>Bring your Goodreads history</b><span>Import your export CSV in seconds: shelves, ratings, dates and all.</span>
+            <ArrowRight size={22} /><b>Bring your books with you</b><span>Import a CSV from Goodreads, StoryGraph or any spreadsheet, with shelves, ratings and dates included.</span>
           </button>
         </div>
       </div>

@@ -40,6 +40,8 @@ export interface Work {
   originalLanguage?: string
   createdBy?: string
   createdAt: string
+  updatedBy?: string
+  updatedAt?: string
 }
 
 export interface Edition {
@@ -63,6 +65,8 @@ export interface Edition {
   note?: string
   createdBy?: string
   createdAt: string
+  updatedBy?: string
+  updatedAt?: string
 }
 
 export type Status = 'want' | 'reading' | 'read' | 'dnf' | 'paused'

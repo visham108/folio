@@ -15,7 +15,8 @@ rereads, editions and stats that are worth looking at.
 | **Cover studio** | Photograph a cover and Folio finds the book, straightens the perspective, fixes colour and contrast, and sharpens it. Books without a cover get a generated typographic one. |
 | **Tidy data** | Anything typed in is converted to title case: "the left hand of darkness" becomes *The Left Hand of Darkness*, "j.r.r. tolkien" becomes *J.R.R. Tolkien*. Deliberate casing such as "McCarthy" or "NASA" is kept. |
 | **Stats** | Books, pages, hours and *combined* (audio converted to page-equivalents, adjustable) by month and by year, split by format; a reading-days heatmap; streaks; goal pace; longest, shortest and fastest reads; ratings, authors and genres; your year as a shelf of covers. Every chart has a table view. |
-| **Goodreads import** | Drop in the Goodreads export CSV. Shelves, ratings, reviews, dates and read counts all come across, matched against the catalogue. |
+| **Import from anywhere** | Drop in a CSV from Goodreads, StoryGraph, LibraryThing or any spreadsheet. Folio recognises the columns (by name, synonyms and the values themselves) and translates statuses, formats, rating scales (5, 10 or 100), date orders, read-date ranges, rereads, narrators and translators. You review and adjust the mapping before anything is added, and books already in the catalogue are matched rather than duplicated. |
+| **Shared catalogue, with an owner** | Anyone can add books and editions; people can edit what they added. One super admin can edit or remove anything, merge duplicate books, and see the full change history. Every catalogue change is logged with who made it and the before/after values. |
 | **Your data** | JSON export/restore at any time. |
 
 ### What's required when adding a book
@@ -39,9 +40,10 @@ With no Supabase configured, the app runs in **on-device mode**: everything is s
 ## Turning on Google sign-in and sync (Supabase)
 
 1. Create a project at [supabase.com](https://supabase.com) (the free tier is plenty).
-2. Run the schema: paste `supabase/migrations/20261014000000_init.sql` into the SQL editor, or
-   `supabase db push` with the CLI. It creates the tables, row-level security (your reading data is
-   private; the book catalogue is shared) and a public `covers` storage bucket.
+2. Run the migrations in `supabase/migrations/` in order (SQL editor, or `supabase db push`). They create
+   the tables, row-level security (your reading data is private; the book catalogue is shared), the
+   change history, the super admin, input limits and a `covers` storage bucket (images only, 2 MB max).
+   The super admin's email is set in `20261014010000_admin_audit.sql`.
 3. **Google login:** in Google Cloud Console create an OAuth client (type *Web application*) and add
    `https://<project-ref>.supabase.co/auth/v1/callback` as an authorised redirect URI. Paste the client
    ID and secret into Supabase → Authentication → Providers → Google.

@@ -232,7 +232,8 @@ function FormStep({ work, setWork, edition, setEdition, onBack }: {
     title: !attach && !work.title.trim() ? 'Title is required' : '',
     authors: !attach && !work.authors.length ? 'Add at least one author' : '',
   }
-  const valid = !errors.title && !errors.authors
+  const dateError = status === 'read' && startedOn && finishedOn && finishedOn < startedOn ? 'The finish date is before the start date.' : ''
+  const valid = !errors.title && !errors.authors && !dateError
 
   const doAttach = (c: MatchCandidate) => {
     setAttach(c)
@@ -337,10 +338,11 @@ function FormStep({ work, setWork, edition, setEdition, onBack }: {
           />
           {(status === 'reading' || status === 'read') && (
             <div className="form-grid">
-              <Field label="Started" hint="Optional"><input className="input" type="date" value={startedOn} onChange={(e) => setStartedOn(e.target.value)} /></Field>
-              {status === 'read' && <Field label="Finished"><input className="input" type="date" value={finishedOn} onChange={(e) => setFinishedOn(e.target.value)} /></Field>}
+              <Field label="Started" hint="Optional"><input className="input" type="date" max={today()} value={startedOn} onChange={(e) => setStartedOn(e.target.value)} /></Field>
+              {status === 'read' && <Field label="Finished"><input className="input" type="date" max={today()} min={startedOn || undefined} value={finishedOn} onChange={(e) => setFinishedOn(e.target.value)} /></Field>}
             </div>
           )}
+          {dateError && <p className="err small">{dateError}</p>}
           {status === 'read' && (
             <div className="rating-row"><span className="field-label">Your rating</span><Stars value={rating} onChange={setRating} size={28} /></div>
           )}

@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  ArrowLeft, BookMarked, Check, ChevronDown, Headphones, Heart, Library as LibIcon, Pencil, Plus, RotateCcw, Tablet, Trash2,
+  ArrowLeft, BookMarked, Lock, Check, ChevronDown, Headphones, Heart, Library as LibIcon, Pencil, Plus, RotateCcw, Tablet, Trash2,
 } from 'lucide-react'
 import { nameCase, titleCase } from '../lib/titleCase'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -8,11 +8,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Cover } from '../components/Cover'
 import { EditionForm } from '../components/EditionForm'
 import { ProgressSheet } from '../components/ProgressSheet'
-import { Bar, Chips, Empty, Field, Segmented, Sheet, Stars } from '../components/ui'
+import { Bar, Chips, ConfirmSheet, Empty, Field, Segmented, Sheet, Stars } from '../components/ui'
+import { AdminPanel } from '../components/AdminPanel'
 import { averageColor } from '../lib/image'
 import { progressInfo } from '../lib/progress'
 import { FORMATS, STATUSES, type Edition, type Read, type ReadState, type Status } from '../lib/types'
-import { coverPalette, daysBetween, fmtDate, fmtDuration, plural } from '../lib/util'
+import { coverPalette, daysBetween, fmtDate, fmtDuration, plural, today } from '../lib/util'
 import { useStore } from '../state/store'
 import { useToast } from '../state/toast'
 
@@ -40,6 +41,7 @@ export function BookPage() {
   const [editRead, setEditRead] = useState<Read | null>(null)
   const [editEdition, setEditEdition] = useState<Edition | 'new' | null>(null)
   const [editWork, setEditWork] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState(false)
   const [review, setReview] = useState(entry?.review ?? '')
   const reviewTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   useEffect(() => setReview(entry?.review ?? ''), [entry?.id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -171,10 +173,16 @@ export function BookPage() {
                       <span className="muted">{edLength(e)}{e.language ? ` · ${e.language.toUpperCase()}` : ''}</span>
                       {e.narrators.length > 0 && <span className="muted">Narr. {e.narrators.join(', ')}</span>}
                       {e.title && e.title !== work.title && <span className="muted">“{e.title}”</span>}
+                      <span className="muted tiny attribution">
+                        {store.backend?.kind === 'cloud' && (e.createdBy === store.userId ? 'Added by you' : 'Added by another reader')}
+                        {e.updatedAt && ` · edited ${fmtDate(e.updatedAt.slice(0, 10))}`}
+                      </span>
                     </div>
                     {mine && <span className="pill tiny mine-pill">Your edition</span>}
                   </button>
-                  <button className="icon-btn edition-edit" aria-label="Edit edition" onClick={() => setEditEdition(e)}><Pencil size={14} /></button>
+                  {store.canEdit(e) && (
+                    <button className="icon-btn edition-edit" aria-label="Edit edition" onClick={() => setEditEdition(e)}><Pencil size={14} /></button>
+                  )}
                 </div>
               )
             })}
@@ -282,15 +290,16 @@ export function BookPage() {
           </section>
         )}
 
+        {store.isAdmin && store.backend?.kind === 'cloud' && <AdminPanel work={work} editions={eds} />}
+
         <section className="section foot-actions">
-          <button className="btn btn-ghost sm" onClick={() => setEditWork(true)}><Pencil size={14} /> Edit book details</button>
+          {store.canEdit(work) ? (
+            <button className="btn btn-ghost sm" onClick={() => setEditWork(true)}><Pencil size={14} /> Edit book details</button>
+          ) : (
+            <span className="muted small lock-note"><Lock size={13} /> Added by another reader, so only they or the admin can edit the details.</span>
+          )}
           {entry && (
-            <button className="btn btn-ghost sm danger" onClick={() => {
-              if (!confirm(`Remove “${work.title}” and its reading history from your library?`)) return
-              store.removeEntry(entry.id)
-              toast('Removed from your library')
-              nav('/library')
-            }}><Trash2 size={14} /> Remove from library</button>
+            <button className="btn btn-ghost sm danger" onClick={() => setConfirmRemove(true)}><Trash2 size={14} /> Remove from library</button>
           )}
           <Link to="/library" className="btn btn-ghost sm"><LibIcon size={14} /> Library</Link>
         </section>
@@ -304,8 +313,17 @@ export function BookPage() {
             workId={work.id}
             workTitle={work.title}
             initial={editEdition === 'new' ? undefined : editEdition}
+            onDelete={editEdition !== 'new' && store.isAdmin && store.backend?.kind === 'cloud' ? async () => {
+              try {
+                await store.deleteEdition(editEdition.id)
+                toast('Edition removed')
+              } catch (err) {
+                toast('Couldn’t remove the edition: ' + (err as Error).message, { tone: 'error' })
+              }
+              setEditEdition(null)
+            } : undefined}
             onDone={(e) => {
-              store.saveEdition(e)
+              store.saveEdition({ ...e, createdBy: e.createdBy ?? store.userId })
               if (editEdition === 'new' && entry) store.updateEntry(entry.id, { editionId: e.id })
               toast(editEdition === 'new' ? 'Edition added' : 'Edition updated')
               setEditEdition(null)
@@ -314,6 +332,22 @@ export function BookPage() {
         )}
       </Sheet>
       <WorkEditor open={editWork} onClose={() => setEditWork(false)} workId={work.id} />
+      <ConfirmSheet
+        open={confirmRemove}
+        title="Remove from your library?"
+        confirmLabel="Remove"
+        danger
+        onClose={() => setConfirmRemove(false)}
+        onConfirm={() => {
+          if (!entry) return
+          const undo = store.removeEntry(entry.id)
+          setConfirmRemove(false)
+          toast(`Removed ${work.title}`, { action: { label: 'Undo', run: undo } })
+          nav('/library')
+        }}
+      >
+        <p>“{work.title}” and its reading history ({plural(reads.length, 'read')}) will leave your shelves. The book stays in the shared catalogue.</p>
+      </ConfirmSheet>
     </div>
   )
 }
@@ -324,6 +358,10 @@ function ReadEditor({ read, editions, onClose }: { read: Read | null; editions: 
   useEffect(() => setR(read), [read])
   if (!r) return <Sheet open={false} onClose={onClose}>{null}</Sheet>
   const set = (p: Partial<Read>) => setR({ ...r, ...p })
+  const dateError =
+    r.startedOn && r.finishedOn && r.startedOn.length === 10 && r.finishedOn.length === 10 && r.finishedOn < r.startedOn
+      ? 'The finish date is before the start date.'
+      : (r.startedOn ?? '') > today() || (r.finishedOn ?? '') > today() ? 'Dates can’t be in the future.' : ''
   return (
     <Sheet
       open={!!read}
@@ -332,7 +370,7 @@ function ReadEditor({ read, editions, onClose }: { read: Read | null; editions: 
       footer={
         <>
           <button className="btn btn-ghost danger" onClick={() => { store.deleteRead(r.id); onClose() }}><Trash2 size={14} /> Delete</button>
-          <button className="btn btn-primary" onClick={() => { store.saveRead(r); onClose() }}>Save</button>
+          <button className="btn btn-primary" disabled={!!dateError} onClick={() => { store.saveRead(r); onClose() }}>Save</button>
         </>
       }
     >
@@ -345,11 +383,12 @@ function ReadEditor({ read, editions, onClose }: { read: Read | null; editions: 
           />
         </Field>
         <Field label="Started" hint="Leave blank if you don’t remember">
-          <input className="input" type="date" value={r.startedOn?.length === 10 ? r.startedOn : ''} onChange={(e) => set({ startedOn: e.target.value || undefined })} />
+          <input className="input" type="date" max={today()} value={r.startedOn?.length === 10 ? r.startedOn : ''} onChange={(e) => set({ startedOn: e.target.value || undefined })} />
         </Field>
         <Field label="Finished">
-          <input className="input" type="date" value={r.finishedOn?.length === 10 ? r.finishedOn : ''} onChange={(e) => set({ finishedOn: e.target.value || undefined })} />
+          <input className="input" type="date" max={today()} min={r.startedOn?.length === 10 ? r.startedOn : undefined} value={r.finishedOn?.length === 10 ? r.finishedOn : ''} onChange={(e) => set({ finishedOn: e.target.value || undefined })} />
         </Field>
+        {dateError && <p className="err small span-2">{dateError}</p>}
         {r.finishedOn && r.finishedOn.length < 10 && <p className="muted small span-2">Imported as “{r.finishedOn}”. Pick a full date to replace it.</p>}
         <Field label="Edition" className="span-2">
           <select className="select" value={r.editionId ?? ''} onChange={(e) => set({ editionId: e.target.value || undefined })}>

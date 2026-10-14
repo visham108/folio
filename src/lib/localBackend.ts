@@ -71,6 +71,8 @@ export function createLocalBackend(): Backend {
   return {
     kind: 'local',
     userLabel: 'This device',
+    // On this device everything is yours to edit.
+    isAdmin: true,
     async loadAll() {
       return structuredClone(await ensure())
     },
@@ -91,6 +93,27 @@ export function createLocalBackend(): Backend {
       await remove('reads', id)
     },
     saveLog: (l) => upsert('logs', l),
+    deleteEdition: async (id) => {
+      const s = await ensure()
+      s.entries = s.entries.map((e) => (e.editionId === id ? { ...e, editionId: undefined } : e))
+      s.reads = s.reads.map((r) => (r.editionId === id ? { ...r, editionId: undefined } : r))
+      await remove('editions', id)
+    },
+    async mergeWorks(fromId, intoId) {
+      const s = await ensure()
+      s.editions = s.editions.map((e) => (e.workId === fromId ? { ...e, workId: intoId } : e))
+      const keep = s.entries.find((e) => e.workId === intoId)
+      const moving = s.entries.find((e) => e.workId === fromId)
+      if (moving && keep) {
+        s.reads = s.reads.map((r) => (r.entryId === moving.id ? { ...r, entryId: keep.id } : r))
+        s.entries = s.entries.filter((e) => e.id !== moving.id)
+      } else if (moving) moving.workId = intoId
+      s.works = s.works.filter((w) => w.id !== fromId)
+      persist()
+    },
+    async history() {
+      return []
+    },
     saveShelf: (x) => upsert('shelves', x),
     deleteShelf: (id) => remove('shelves', id),
     async saveSettings(settings) {

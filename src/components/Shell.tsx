@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { BarChart3, BookOpen, Home, Library, Plus, Settings } from 'lucide-react'
+import { Suspense } from 'react'
 import { NavLink, useLocation, useNavigate, useOutlet } from 'react-router-dom'
 import { useStore } from '../state/store'
 import { Ring } from './ui'
@@ -54,7 +55,7 @@ export function Shell() {
             transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
             onAnimationStart={() => window.scrollTo({ top: 0 })}
           >
-            {outlet}
+            <Suspense fallback={<div className="page-loading" aria-busy="true" />}>{outlet}</Suspense>
           </motion.div>
         </AnimatePresence>
       </main>

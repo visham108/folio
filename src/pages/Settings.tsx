@@ -1,8 +1,8 @@
-import { Download, FileUp, LogOut, Moon, Sparkles, Sun, SunMoon, Trash2, Upload } from 'lucide-react'
+import { Download, FileUp, LogOut, Moon, ShieldCheck, Sparkles, Sun, SunMoon, Trash2, Upload } from 'lucide-react'
 import { nameCase } from '../lib/titleCase'
 import { useEffect, useRef, useState } from 'react'
-import { Field, Segmented } from '../components/ui'
-import { importGoodreads } from '../lib/goodreads'
+import { ConfirmSheet, Field, Segmented } from '../components/ui'
+import { ImportSheet } from '../components/ImportSheet'
 import { sampleLibrary } from '../lib/sample'
 import type { Settings, Snapshot } from '../lib/types'
 import { useStore } from '../state/store'
@@ -13,28 +13,18 @@ export function SettingsPage() {
   const { data, backend } = store
   const toast = useToast()
   const s = data.settings
-  const grFile = useRef<HTMLInputElement>(null)
   const jsonFile = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [goal, setGoal] = useState(String(s.yearlyGoal))
+  const [importOpen, setImportOpen] = useState(false)
+  const [confirmWipe, setConfirmWipe] = useState(false)
 
   useEffect(() => {
-    if (location.hash.includes('import')) document.getElementById('import')?.scrollIntoView({ behavior: 'smooth' })
-  }, [])
-
-  const runImport = async (file: File) => {
-    setBusy('Importing…')
-    try {
-      const text = await file.text()
-      const res = importGoodreads(text, data)
-      await store.importData(res.data)
-      toast(`Imported ${res.data.entries.length} books (${res.added} new to Folio, ${res.matched} matched existing${res.skipped ? `, ${res.skipped} already on your shelves` : ''})`)
-    } catch (e) {
-      toast((e as Error).message, { tone: 'error' })
-    } finally {
-      setBusy(null)
+    if (location.hash.includes('import')) {
+      document.getElementById('import')?.scrollIntoView({ behavior: 'smooth' })
+      setImportOpen(true)
     }
-  }
+  }, [])
 
   const exportJson = () => {
     const blob = new Blob([JSON.stringify({ app: 'folio', version: 1, exportedAt: new Date().toISOString(), ...data }, null, 2)], { type: 'application/json' })
@@ -97,16 +87,16 @@ export function SettingsPage() {
 
       <section className="card form-card" id="import">
         <h3>Bring your books</h3>
-        <p className="muted">On Goodreads go to <b>My Books → Import and export → Export library</b>, then drop the CSV here. Shelves, ratings, reviews, read dates and reread counts all come across, and books already in Folio are matched instead of duplicated.</p>
+        <p className="muted">Import the CSV export from Goodreads, StoryGraph, LibraryThing or any spreadsheet. Folio works out which column is which (titles, authors, statuses, ratings, read dates, rereads, shelves) and shows you the mapping to check before anything is added. Books already in Folio are matched instead of duplicated.</p>
         <div className="btn-row">
-          <button className="btn btn-primary" disabled={!!busy} onClick={() => grFile.current?.click()}><FileUp size={16} /> {busy ?? 'Import Goodreads CSV'}</button>
+          <button className="btn btn-primary" onClick={() => setImportOpen(true)}><FileUp size={16} /> Import a CSV</button>
           {backend?.kind === 'local' && data.entries.length === 0 && (
             <button className="btn btn-ghost" onClick={async () => { await store.importData(sampleLibrary()); toast('Sample library loaded. Have a look at Stats.') }}>
               <Sparkles size={16} /> Load a sample library
             </button>
           )}
         </div>
-        <input ref={grFile} type="file" accept=".csv,text/csv" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) runImport(f); e.target.value = '' }} />
+        <ImportSheet open={importOpen} onClose={() => setImportOpen(false)} />
       </section>
 
       <section className="card form-card">
@@ -114,7 +104,7 @@ export function SettingsPage() {
         <p className="muted">It’s yours. Export everything as JSON at any time, or restore from an export.</p>
         <div className="btn-row">
           <button className="btn btn-soft" onClick={exportJson}><Download size={16} /> Export JSON</button>
-          <button className="btn btn-ghost" onClick={() => jsonFile.current?.click()}><Upload size={16} /> Restore from export</button>
+          <button className="btn btn-ghost" disabled={!!busy} onClick={() => jsonFile.current?.click()}><Upload size={16} /> {busy ?? 'Restore from export'}</button>
         </div>
         <input ref={jsonFile} type="file" accept="application/json,.json" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) importJson(f); e.target.value = '' }} />
       </section>
@@ -123,17 +113,27 @@ export function SettingsPage() {
         <h3>Account</h3>
         <p className="muted">
           {backend?.kind === 'cloud'
-            ? <>Signed in as <b>{backend.userLabel}</b>. Your library syncs across devices.</>
+            ? <>Signed in as <b>{backend.userLabel}</b>. Your library syncs across devices.{store.isAdmin && <span className="pill tiny admin-pill"><ShieldCheck size={11} /> Super admin</span>}</>
             : <>Your library lives in this browser only. Sign in with Google to sync it everywhere. Export first, then restore after signing in to bring these books along.</>}
         </p>
         <div className="btn-row">
           <button className="btn btn-ghost" onClick={() => store.signOut()}><LogOut size={16} /> {backend?.kind === 'cloud' ? 'Sign out' : 'Switch to an account'}</button>
-          <button className="btn btn-ghost danger" onClick={async () => {
-            if (!confirm('Delete every book, read and shelf in your library? This can’t be undone.')) return
-            await store.wipe()
-            toast('Library cleared')
-          }}><Trash2 size={16} /> Delete my library</button>
+          <button className="btn btn-ghost danger" onClick={() => setConfirmWipe(true)}><Trash2 size={16} /> Delete my library</button>
         </div>
+        <ConfirmSheet
+          open={confirmWipe}
+          title="Delete your whole library?"
+          confirmLabel="Delete everything"
+          danger
+          onClose={() => setConfirmWipe(false)}
+          onConfirm={async () => {
+            setConfirmWipe(false)
+            await store.wipe()
+            toast('Library deleted')
+          }}
+        >
+          <p>All {data.entries.length} books on your shelves, their reading history and your shelves will be deleted. This can’t be undone, so export a copy first if you might want it back.</p>
+        </ConfirmSheet>
       </section>
     </div>
   )

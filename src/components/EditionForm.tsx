@@ -5,7 +5,7 @@ import { FORMATS, type Edition, type Format } from '../lib/types'
 import { cleanIsbn, fmtDuration, nowIso, parseDuration, uid } from '../lib/util'
 import { Cover } from './Cover'
 import { CoverStudio } from './CoverStudio'
-import { Chips, Field, Segmented } from './ui'
+import { Chips, ConfirmSheet, Field, Segmented } from './ui'
 
 export type EditionDraft = Omit<Edition, 'id' | 'workId' | 'createdAt'> & { id?: string }
 
@@ -96,18 +96,25 @@ function CoverPicker({ value, title, authors, onChange }: {
 }
 
 /** Stand-alone form used from the book page. */
-export function EditionForm({ workId, workTitle, initial, onDone }: {
-  workId: string; workTitle: string; initial?: Edition; onDone: (e: Edition) => void
+export function EditionForm({ workId, workTitle, initial, onDone, onDelete }: {
+  workId: string; workTitle: string; initial?: Edition; onDone: (e: Edition) => void; onDelete?: () => void
 }) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [d, setD] = useState<EditionDraft>(initial ?? blankEdition())
   return (
     <div>
       <EditionFields value={d} onChange={setD} title={d.title || workTitle} authors={[]} />
       <div className="sheet-inline-foot">
+        {onDelete && <button className="btn btn-ghost danger" onClick={() => setConfirmDelete(true)}>Remove edition</button>}
         <button className="btn btn-primary" onClick={() => onDone({ ...d, id: initial?.id ?? uid(), workId, createdAt: initial?.createdAt ?? nowIso() } as Edition)}>
           {initial ? 'Save edition' : 'Add edition'}
         </button>
       </div>
+      {onDelete && (
+        <ConfirmSheet open={confirmDelete} title="Remove this edition?" confirmLabel="Remove edition" danger onClose={() => setConfirmDelete(false)} onConfirm={onDelete}>
+          <p>It disappears from the catalogue for everyone. Readers who had it as their edition keep the book and their history.</p>
+        </ConfirmSheet>
+      )}
     </div>
   )
 }

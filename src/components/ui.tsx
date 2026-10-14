@@ -67,7 +67,18 @@ export function Sheet({
   useEffect(() => {
     if (!open) return
     const prev = document.activeElement as HTMLElement | null
-    const onKey = (e: globalThis.KeyboardEvent) => e.key === 'Escape' && onClose()
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      // With a dialog stacked on another, only the one holding focus responds.
+      if (!ref.current || (document.activeElement && document.activeElement !== document.body && !ref.current.contains(document.activeElement))) return
+      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Tab') return
+      // Keep keyboard focus inside the dialog.
+      const items = [...ref.current.querySelectorAll<HTMLElement>('button:not(:disabled),input:not([type=hidden]),select,textarea,a[href],[tabindex]:not([tabindex="-1"])')]
+      if (!items.length) return
+      const first = items[0], last = items[items.length - 1]
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+    }
     window.addEventListener('keydown', onKey)
     document.body.classList.add('no-scroll')
     setTimeout(() => ref.current?.querySelector<HTMLElement>('input,textarea,select,button:not(.sheet-x)')?.focus(), 60)
@@ -211,5 +222,22 @@ export function Empty({ icon, title, children }: { icon?: ReactNode; title: stri
       <h3>{title}</h3>
       {children}
     </div>
+  )
+}
+
+/** In-app confirmation (replaces the browser's confirm()). */
+export function ConfirmSheet({ open, title, children, confirmLabel, danger = false, busy = false, onConfirm, onClose }: {
+  open: boolean; title: string; children?: ReactNode; confirmLabel: string; danger?: boolean; busy?: boolean
+  onConfirm: () => void; onClose: () => void
+}) {
+  return (
+    <Sheet open={open} onClose={onClose} title={title} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <button className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`} onClick={onConfirm} disabled={busy}>{confirmLabel}</button>
+      </>
+    }>
+      {children && <div className="confirm-body">{children}</div>}
+    </Sheet>
   )
 }

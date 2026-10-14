@@ -2,13 +2,15 @@
 -- Shared catalogue (works + editions) readable by every signed-in user;
 -- personal data (entries, reads, logs, shelves, profile) private per user.
 
-create extension if not exists pg_trgm;
-create extension if not exists unaccent;
+create schema if not exists extensions;
+create extension if not exists pg_trgm with schema extensions;
+create extension if not exists unaccent with schema extensions;
 
 -- unaccent() isn't immutable, so wrap it for use in an index expression.
 create or replace function public.folio_fold(t text) returns text
-language sql immutable parallel safe as $$
-  select lower(public.unaccent('public.unaccent'::regdictionary, coalesce(t, '')))
+language sql immutable parallel safe
+set search_path = '' as $$
+  select lower(extensions.unaccent('extensions.unaccent'::regdictionary, coalesce(t, '')))
 $$;
 
 -- ── Catalogue ──────────────────────────────────────────────────────────────
@@ -27,7 +29,7 @@ create table public.works (
   created_by       uuid default auth.uid() references auth.users on delete set null,
   created_at       timestamptz not null default now()
 );
-create index works_title_trgm on public.works using gin (public.folio_fold(title) gin_trgm_ops);
+create index works_title_trgm on public.works using gin (public.folio_fold(title) extensions.gin_trgm_ops);
 
 create table public.editions (
   id             uuid primary key default gen_random_uuid(),
@@ -56,7 +58,8 @@ create index editions_isbn10 on public.editions (isbn10) where isbn10 is not nul
 -- Similar-title search used by the duplicate detector.
 create or replace function public.find_similar_works(q_title text, q_limit int default 8)
 returns setof public.works
-language sql stable as $$
+language sql stable
+set search_path = public, extensions as $$
   select w.* from public.works w
   where public.folio_fold(w.title) % public.folio_fold(q_title)
      or public.folio_fold(w.title) ilike '%' || public.folio_fold(q_title) || '%'
@@ -114,6 +117,8 @@ create table public.reads (
   notes        text
 );
 create index reads_entry on public.reads (entry_id);
+create index reads_user on public.reads (user_id);
+create index reads_edition on public.reads (edition_id);
 
 create table public.logs (
   id       uuid primary key default gen_random_uuid(),
@@ -124,6 +129,12 @@ create table public.logs (
   medium   text not null check (medium in ('print','ebook','audio'))
 );
 create index logs_user_date on public.logs (user_id, on_date);
+create index logs_read on public.logs (read_id);
+create index entries_work on public.entries (work_id);
+create index entries_edition on public.entries (edition_id);
+create index shelves_user on public.shelves (user_id);
+create index works_created_by on public.works (created_by);
+create index editions_created_by on public.editions (created_by);
 
 -- ── Row level security ─────────────────────────────────────────────────────
 
@@ -136,17 +147,17 @@ alter table public.reads    enable row level security;
 alter table public.logs     enable row level security;
 
 create policy "catalogue readable" on public.works    for select to authenticated using (true);
-create policy "catalogue insert"   on public.works    for insert to authenticated with check (created_by = auth.uid());
-create policy "catalogue update"   on public.works    for update to authenticated using (created_by = auth.uid());
+create policy "catalogue insert"   on public.works    for insert to authenticated with check (created_by = (select auth.uid()));
+create policy "catalogue update"   on public.works    for update to authenticated using (created_by = (select auth.uid()));
 create policy "catalogue readable" on public.editions for select to authenticated using (true);
-create policy "catalogue insert"   on public.editions for insert to authenticated with check (created_by = auth.uid());
-create policy "catalogue update"   on public.editions for update to authenticated using (created_by = auth.uid());
+create policy "catalogue insert"   on public.editions for insert to authenticated with check (created_by = (select auth.uid()));
+create policy "catalogue update"   on public.editions for update to authenticated using (created_by = (select auth.uid()));
 
-create policy "own profile"  on public.profiles for all to authenticated using (id = auth.uid())      with check (id = auth.uid());
-create policy "own shelves"  on public.shelves  for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy "own entries"  on public.entries  for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy "own reads"    on public.reads    for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy "own logs"     on public.logs     for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "own profile"  on public.profiles for all to authenticated using (id = (select auth.uid()))      with check (id = (select auth.uid()));
+create policy "own shelves"  on public.shelves  for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+create policy "own entries"  on public.entries  for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+create policy "own reads"    on public.reads    for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+create policy "own logs"     on public.logs     for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 
 -- ── Cover images ───────────────────────────────────────────────────────────
 
@@ -154,4 +165,4 @@ insert into storage.buckets (id, name, public) values ('covers', 'covers', true)
 on conflict (id) do nothing;
 
 create policy "covers upload own folder" on storage.objects for insert to authenticated
-  with check (bucket_id = 'covers' and (storage.foldername(name))[1] = auth.uid()::text);
+  with check (bucket_id = 'covers' and (storage.foldername(name))[1] = (select auth.uid())::text);

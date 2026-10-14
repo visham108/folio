@@ -39,6 +39,10 @@ interface Store {
   entryByWork: Map<string, Entry>
   editionsByWork: Map<string, Edition[]>
   readsByEntry: Map<string, Read[]>
+  /** Whether the current user may edit this catalogue record. */
+  canEdit(rec?: { createdBy?: string }): boolean
+  isAdmin: boolean
+  userId?: string
   // session
   continueOnDevice(): void
   signOut(): Promise<void>
@@ -49,7 +53,10 @@ interface Store {
   remember(works: Work[], editions: Edition[]): void
   saveEdition(e: Edition): void
   updateEntry(id: string, patch: Partial<Entry>): void
-  removeEntry(id: string): void
+  /** Removes a book from your library; returns a function that puts it back. */
+  removeEntry(id: string): () => void
+  deleteEdition(id: string): Promise<void>
+  mergeWorks(fromId: string, intoId: string): Promise<void>
   setStatus(entryId: string, s: Status): void
   startRead(entryId: string, editionId?: string): Read
   saveRead(r: Read): void
@@ -166,8 +173,13 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
     [readsByEntry],
   )
 
+  const isAdmin = !!backend?.isAdmin
+  const userId = backend?.userId
+
   const store: Store = {
     ready, backend, data, works, editions, entries, entryByWork, editionsByWork, readsByEntry, activeRead,
+    isAdmin, userId,
+    canEdit: (rec) => !!rec && (backend?.kind === 'local' || isAdmin || (!!userId && rec.createdBy === userId)),
 
     editionOf: (entry) => editions.get(entry.editionId ?? '') ?? editionsByWork.get(entry.workId)?.[0],
 
@@ -184,10 +196,10 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
     addBook(b) {
       const t = nowIso()
       const existing = b.work.id ? works.get(b.work.id) : undefined
-      const work: Work = existing ?? { ...b.work, id: b.work.id ?? uid(), createdAt: t }
+      const work: Work = existing ?? { ...b.work, id: b.work.id ?? uid(), createdAt: t, createdBy: userId }
       const edition: Edition = b.edition.id && editions.get(b.edition.id)
         ? editions.get(b.edition.id)!
-        : { ...b.edition, id: b.edition.id ?? uid(), workId: work.id, createdAt: t }
+        : { ...b.edition, id: b.edition.id ?? uid(), workId: work.id, createdAt: t, createdBy: userId }
       const prev = entryByWork.get(work.id)
       const entry: Entry = prev
         ? { ...prev, editionId: edition.id, status: b.status, updatedAt: t }
@@ -241,16 +253,37 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
       persist((b) => b.saveEntry(next))
     },
     removeEntry(id) {
-      setData((d) => {
-        const readIds = new Set(d.reads.filter((r) => r.entryId === id).map((r) => r.id))
-        return {
-          ...d,
-          entries: d.entries.filter((e) => e.id !== id),
-          reads: d.reads.filter((r) => r.entryId !== id),
-          logs: d.logs.filter((l) => !readIds.has(l.readId)),
-        }
-      })
+      const entry = entries.get(id)
+      const reads = data.reads.filter((r) => r.entryId === id)
+      const readIds = new Set(reads.map((r) => r.id))
+      const logs = data.logs.filter((l) => readIds.has(l.readId))
+      setData((d) => ({
+        ...d,
+        entries: d.entries.filter((e) => e.id !== id),
+        reads: d.reads.filter((r) => r.entryId !== id),
+        logs: d.logs.filter((l) => !readIds.has(l.readId)),
+      }))
       persist((b) => b.deleteEntry(id))
+      return () => {
+        if (!entry) return
+        setData((d) => ({ ...d, entries: [...d.entries, entry], reads: [...d.reads, ...reads], logs: [...d.logs, ...logs] }))
+        persist((b) => b.saveMany({ entries: [entry], reads, logs }))
+      }
+    },
+    async deleteEdition(id) {
+      await be.current?.deleteEdition(id)
+      setData((d) => ({
+        ...d,
+        editions: d.editions.filter((e) => e.id !== id),
+        entries: d.entries.map((e) => (e.editionId === id ? { ...e, editionId: undefined } : e)),
+        reads: d.reads.map((r) => (r.editionId === id ? { ...r, editionId: undefined } : r)),
+      }))
+    },
+    async mergeWorks(fromId, intoId) {
+      const b = be.current
+      if (!b) return
+      await b.mergeWorks(fromId, intoId)
+      setData(await b.loadAll())
     },
 
     setStatus(entryId, status) {

@@ -72,7 +72,7 @@ export function Stats() {
       <div className="page">
         <header className="page-head"><p className="eyebrow">Stats</p><h1 className="display">Your reading, <em>in numbers.</em></h1></header>
         <Empty title="Finish a book to see your stats">
-          <p>Mark something as <b>Read</b>, or <Link className="link" to="/settings#import">import your Goodreads history</Link>.</p>
+          <p>Mark something as <b>Read</b>, or <Link className="link" to="/settings#import">import your history from another app</Link>.</p>
         </Empty>
       </div>
     )
