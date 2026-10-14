@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Backend } from '../lib/backend'
 import { createLocalBackend } from '../lib/localBackend'
+import { sampleLibrary } from '../lib/sample'
 import { cloudConfigured, createCloudBackend, supabase } from '../lib/supabaseBackend'
 import {
   emptySnapshot, mediumOf, type Edition, type Entry, type LogPoint, type Read, type Settings, type Shelf,
@@ -9,6 +10,15 @@ import {
 import { nowIso, today, uid } from '../lib/util'
 
 const MODE_KEY = 'folio.mode'
+/** Preview builds (VITE_DEMO=1) skip sign-in and open on the sample library. */
+export const DEMO = import.meta.env.VITE_DEMO === '1'
+
+function getMode() {
+  try { return localStorage.getItem(MODE_KEY) } catch { return null }
+}
+function setMode(v: string | null) {
+  try { if (v) localStorage.setItem(MODE_KEY, v); else localStorage.removeItem(MODE_KEY) } catch { /* storage blocked */ }
+}
 
 export interface NewBook {
   work: Omit<Work, 'id' | 'createdAt'> & { id?: string }
@@ -80,10 +90,15 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
   const boot = useCallback(async () => {
     let b: Backend | null = null
     if (cloudConfigured) b = await createCloudBackend().catch(() => null)
-    if (!b && localStorage.getItem(MODE_KEY) === 'local') b = createLocalBackend()
+    if (!b && (DEMO || getMode() === 'local')) b = createLocalBackend()
     if (b) {
       try {
-        setData(await b.loadAll())
+        let snap = await b.loadAll()
+        if (DEMO && b.kind === 'local' && !snap.entries.length) {
+          await b.saveMany(sampleLibrary())
+          snap = await b.loadAll()
+        }
+        setData(snap)
       } catch (e) {
         errRef.current('Could not load your library. ' + (e as Error).message)
       }
@@ -157,11 +172,11 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
     editionOf: (entry) => editions.get(entry.editionId ?? '') ?? editionsByWork.get(entry.workId)?.[0],
 
     continueOnDevice() {
-      localStorage.setItem(MODE_KEY, 'local')
+      setMode('local')
       boot()
     },
     async signOut() {
-      localStorage.removeItem(MODE_KEY)
+      setMode(null)
       await be.current?.signOut?.()
       await boot()
     },
