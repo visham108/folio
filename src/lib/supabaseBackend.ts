@@ -7,6 +7,8 @@ const URL_ = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
 export const cloudConfigured = !!(URL_ && KEY)
+/** Sign-in by emailed code. Needs custom SMTP in Supabase first (see README), so it's off unless switched on. */
+export const emailSignIn = cloudConfigured && import.meta.env.VITE_EMAIL_SIGNIN === '1'
 
 let client: SupabaseClient | null = null
 export function supabase(): SupabaseClient {

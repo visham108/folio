@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowLeft, BookOpen, Mail, Smartphone } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Cover } from '../components/Cover'
-import { cloudConfigured, sendEmailCode, signInWithGoogle, verifyEmailCode } from '../lib/supabaseBackend'
+import { cloudConfigured, emailSignIn, sendEmailCode, signInWithGoogle, verifyEmailCode } from '../lib/supabaseBackend'
 import { useStore } from '../state/store'
 import { useToast } from '../state/toast'
 
@@ -139,9 +139,11 @@ export function Login() {
                   >
                     <GoogleMark /> Continue with Google
                   </button>
-                  <button className="btn btn-google" onClick={() => setWithEmail(true)}>
-                    <Mail size={18} /> Continue with email
-                  </button>
+                  {emailSignIn && (
+                    <button className="btn btn-google" onClick={() => setWithEmail(true)}>
+                      <Mail size={18} /> Continue with email
+                    </button>
+                  )}
                   <span className="or" aria-hidden>or</span>
                 </>
               )}

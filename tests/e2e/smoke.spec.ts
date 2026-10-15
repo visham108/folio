@@ -153,7 +153,9 @@ test('smart shelves, series, moods and export', async ({ page }) => {
   expect(errors).toEqual([])
 })
 
+// Email sign-in is switched off in the deployed build (VITE_EMAIL_SIGNIN); this runs when it's on.
 test('signing in with an emailed code', async ({ page }) => {
+  test.skip(process.env.VITE_EMAIL_SIGNIN !== '1', 'email sign-in is switched off')
   const errors = watchErrors(page)
   // Stand-ins for Supabase Auth, so no real email is sent.
   await page.route('**/auth/v1/otp*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }))
