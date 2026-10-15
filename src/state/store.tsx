@@ -219,7 +219,9 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
     <T,>(f: (b: Backend) => Promise<T>): Promise<T | undefined> => {
       const b = be.current
       if (!b) return Promise.resolve(undefined)
-      const run = chain.current.then(() => f(b))
+      // On this device saves are recorded (and kept in order) the instant they're made, so they
+      // start straight away; network saves wait their turn.
+      const run = b.kind === 'local' ? f(b) : chain.current.then(() => f(b))
       chain.current = run.catch((e) => errRef.current('Couldn’t save: ' + ((e as Error).message ?? 'unknown error')))
       return run.catch(() => undefined)
     },

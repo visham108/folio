@@ -225,3 +225,16 @@ test('reads, piles and shelves behave', async ({ page }) => {
 
   expect(errors).toEqual([])
 })
+
+test('a change survives an immediate reload', async ({ page }) => {
+  await startOnDevice(page)
+  await page.goto('/#/settings')
+  await page.getByRole('button', { name: /sample library/ }).click()
+  await openLibrary(page, '/read')
+  await page.locator('.tile-link').first().click()
+  for (const pace of ['Fast', 'Slow', 'Medium']) {
+    await page.getByRole('radio', { name: pace }).click()
+    await page.reload()
+    await expect(page.getByRole('radio', { name: pace })).toBeChecked()
+  }
+})

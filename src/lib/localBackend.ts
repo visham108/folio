@@ -62,14 +62,85 @@ function normalize(stored?: Partial<Snapshot>): Snapshot {
 }
 
 type ListKey = 'works' | 'editions' | 'entries' | 'reads' | 'logs' | 'shelves'
-type Op = (s: Snapshot) => void
+
+/** A change to the on-device library, as plain data so it can be written down before it's saved. */
+type Op =
+  | { t: 'upsert'; key: ListKey; items: { id: string }[] }
+  | { t: 'deleteEntry'; id: string }
+  | { t: 'deleteRead'; id: string }
+  | { t: 'deleteEdition'; id: string }
+  | { t: 'deleteShelf'; id: string }
+  | { t: 'merge'; from: string; into: string }
+  | { t: 'settings'; settings: Snapshot['settings'] }
 interface Pending { op: Op; done: () => void; fail: (e: unknown) => void }
 
-function upsertInto<K extends ListKey>(s: Snapshot, key: K, item: Snapshot[K][number]) {
-  const list = s[key] as { id: string }[]
-  const i = list.findIndex((x) => x.id === (item as { id: string }).id)
-  if (i >= 0) list[i] = item as { id: string }
-  else list.push(item as { id: string })
+function applyOp(s: Snapshot, op: Op) {
+  switch (op.t) {
+    case 'upsert':
+      for (const item of op.items) {
+        const list = s[op.key] as { id: string }[]
+        const i = list.findIndex((x) => x.id === item.id)
+        const copy = structuredClone(item)
+        if (i >= 0) list[i] = copy
+        else list.push(copy)
+      }
+      break
+    case 'deleteEntry': {
+      const readIds = new Set(s.reads.filter((r) => r.entryId === op.id).map((r) => r.id))
+      s.entries = s.entries.filter((e) => e.id !== op.id)
+      s.reads = s.reads.filter((r) => !readIds.has(r.id))
+      s.logs = s.logs.filter((l) => !readIds.has(l.readId))
+      break
+    }
+    case 'deleteRead':
+      s.reads = s.reads.filter((r) => r.id !== op.id)
+      s.logs = s.logs.filter((l) => l.readId !== op.id)
+      break
+    case 'deleteEdition':
+      s.editions = s.editions.filter((e) => e.id !== op.id)
+      s.entries = s.entries.map((e) => (e.editionId === op.id ? { ...e, editionId: undefined } : e))
+      s.reads = s.reads.map((r) => (r.editionId === op.id ? { ...r, editionId: undefined } : r))
+      break
+    case 'deleteShelf':
+      s.shelves = s.shelves.filter((x) => x.id !== op.id)
+      s.entries = s.entries.map((e) => (e.shelfIds.includes(op.id) ? { ...e, shelfIds: e.shelfIds.filter((x) => x !== op.id) } : e))
+      break
+    case 'merge': {
+      s.editions = s.editions.map((e) => (e.workId === op.from ? { ...e, workId: op.into } : e))
+      const keep = s.entries.find((e) => e.workId === op.into)
+      const moving = s.entries.find((e) => e.workId === op.from)
+      if (moving && keep) {
+        // Keep what you'd recorded on the duplicate: rating, review, tags, shelves…
+        Object.assign(keep, mergeEntryFields(keep, moving))
+        s.reads = s.reads.map((r) => (r.entryId === moving.id ? { ...r, entryId: keep.id } : r))
+        s.entries = s.entries.filter((e) => e.id !== moving.id)
+      } else if (moving) moving.workId = op.into
+      s.works = s.works.filter((w) => w.id !== op.from)
+      break
+    }
+    case 'settings':
+      s.settings = structuredClone(op.settings)
+      break
+  }
+}
+
+// Changes not yet on disk are also written to localStorage the instant they're made (that's
+// synchronous), so closing or reloading the tab mid-save can't lose them; the next load replays them.
+const JOURNAL = 'folio.journal.'
+const tabJournal = JOURNAL + Math.random().toString(36).slice(2)
+function journal(ops: Op[]) {
+  try { if (ops.length) localStorage.setItem(tabJournal, JSON.stringify(ops)); else localStorage.removeItem(tabJournal) } catch { /* storage full or blocked */ }
+}
+function leftoverJournals(): { key: string; ops: Op[] }[] {
+  const out: { key: string; ops: Op[] }[] = []
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (!key?.startsWith(JOURNAL) || key === tabJournal) continue
+      try { out.push({ key, ops: JSON.parse(localStorage.getItem(key) ?? '[]') }) } catch { /* unreadable */ }
+    }
+  } catch { /* storage blocked */ }
+  return out
 }
 
 export function createLocalBackend(): Backend {
@@ -77,9 +148,21 @@ export function createLocalBackend(): Backend {
   // whatever is stored at the time, so changes made in another tab aren't overwritten.
   let snap: Snapshot | null = null
   let queue: Pending[] = []
+  let unsaved: Op[] = []
   let pumping: Promise<void> | null = null
 
-  const ensure = async () => (snap ??= normalize(await idbGet<Snapshot>(KEY).catch(() => undefined)))
+  const load = async () => {
+    const stored = normalize(await idbGet<Snapshot>(KEY).catch(() => undefined))
+    // Changes a closed tab didn't get to save.
+    const left = leftoverJournals()
+    if (left.length) {
+      for (const j of left) for (const op of j.ops) applyOp(stored, op)
+      await withLock(() => idbSet(KEY, stored)).catch(() => {})
+      try { left.forEach((j) => localStorage.removeItem(j.key)) } catch { /* blocked */ }
+    }
+    return stored
+  }
+  const ensure = async () => (snap ??= await load())
 
   const pump = () => {
     pumping ??= (async () => {
@@ -89,9 +172,11 @@ export function createLocalBackend(): Backend {
         try {
           await withLock(async () => {
             const stored = normalize(await idbGet<Snapshot>(KEY))
-            for (const p of batch) p.op(stored)
+            for (const p of batch) applyOp(stored, p.op)
             await idbSet(KEY, stored)
           })
+          unsaved = unsaved.slice(batch.length)
+          journal(unsaved)
           batch.forEach((p) => p.done())
           try { new BroadcastChannel(LOCAL_CHANNEL).postMessage('changed') } catch { /* not supported */ }
         } catch (e) {
@@ -104,18 +189,21 @@ export function createLocalBackend(): Backend {
   }
 
   /** Applies a change here straight away and saves it; resolves once it's on disk. */
-  const apply = async (op: Op) => {
-    op(await ensure())
+  const apply = (op: Op) => {
+    // Written down synchronously, before anything else can interrupt.
+    unsaved.push(op)
+    journal(unsaved)
     return new Promise<void>((done, fail) => {
-      queue.push({ op, done, fail })
-      void pump()
+      void ensure().then((s) => {
+        applyOp(s, op)
+        queue.push({ op, done, fail })
+        void pump()
+      }, fail)
     })
   }
 
-  const upsert = <K extends ListKey>(key: K, item: Snapshot[K][number]) => {
-    const copy = structuredClone(item)
-    return apply((s) => upsertInto(s, key, structuredClone(copy)))
-  }
+  const upsert = <K extends ListKey>(key: K, item: Snapshot[K][number]) =>
+    apply({ t: 'upsert', key, items: [structuredClone(item) as { id: string }] })
 
   return {
     kind: 'local',
@@ -124,66 +212,33 @@ export function createLocalBackend(): Backend {
     isAdmin: true,
     async loadAll() {
       // Pick up anything another tab saved, after our own pending writes land.
+      await ensure()
       while (pumping) await pumping
-      snap = normalize(await idbGet<Snapshot>(KEY).catch(() => undefined))
+      snap = await load()
       return structuredClone(snap)
     },
     saveWork: (w) => upsert('works', w),
     saveEdition: (e) => upsert('editions', e),
     saveEntry: (e) => upsert('entries', e),
-    deleteEntry: (id) =>
-      apply((s) => {
-        const readIds = new Set(s.reads.filter((r) => r.entryId === id).map((r) => r.id))
-        s.entries = s.entries.filter((e) => e.id !== id)
-        s.reads = s.reads.filter((r) => !readIds.has(r.id))
-        s.logs = s.logs.filter((l) => !readIds.has(l.readId))
-      }),
+    deleteEntry: (id) => apply({ t: 'deleteEntry', id }),
     saveRead: (r) => upsert('reads', r),
-    deleteRead: (id) =>
-      apply((s) => {
-        s.reads = s.reads.filter((r) => r.id !== id)
-        s.logs = s.logs.filter((l) => l.readId !== id)
-      }),
+    deleteRead: (id) => apply({ t: 'deleteRead', id }),
     saveLog: (l) => upsert('logs', l),
-    deleteEdition: (id) =>
-      apply((s) => {
-        s.editions = s.editions.filter((e) => e.id !== id)
-        s.entries = s.entries.map((e) => (e.editionId === id ? { ...e, editionId: undefined } : e))
-        s.reads = s.reads.map((r) => (r.editionId === id ? { ...r, editionId: undefined } : r))
-      }),
-    mergeWorks: (fromId, intoId) =>
-      apply((s) => {
-        s.editions = s.editions.map((e) => (e.workId === fromId ? { ...e, workId: intoId } : e))
-        const keep = s.entries.find((e) => e.workId === intoId)
-        const moving = s.entries.find((e) => e.workId === fromId)
-        if (moving && keep) {
-          // Keep what you'd recorded on the duplicate: rating, review, tags, shelves…
-          Object.assign(keep, mergeEntryFields(keep, moving))
-          s.reads = s.reads.map((r) => (r.entryId === moving.id ? { ...r, entryId: keep.id } : r))
-          s.entries = s.entries.filter((e) => e.id !== moving.id)
-        } else if (moving) moving.workId = intoId
-        s.works = s.works.filter((w) => w.id !== fromId)
-      }),
+    deleteEdition: (id) => apply({ t: 'deleteEdition', id }),
+    mergeWorks: (fromId, intoId) => apply({ t: 'merge', from: fromId, into: intoId }),
     async history() {
       return []
     },
     saveShelf: (x) => upsert('shelves', x),
-    deleteShelf: (id) =>
-      apply((s) => {
-        s.shelves = s.shelves.filter((x) => x.id !== id)
-        s.entries = s.entries.map((e) => (e.shelfIds.includes(id) ? { ...e, shelfIds: e.shelfIds.filter((x) => x !== id) } : e))
-      }),
-    saveSettings: (settings) => {
-      const copy = structuredClone(settings)
-      return apply((s) => { s.settings = structuredClone(copy) })
-    },
+    deleteShelf: (id) => apply({ t: 'deleteShelf', id }),
+    saveSettings: (settings) => apply({ t: 'settings', settings: structuredClone(settings) }),
     async saveMany(part) {
-      const copy = structuredClone(part)
-      await apply((s) => {
-        for (const key of ['works', 'editions', 'shelves', 'entries', 'reads', 'logs'] as ListKey[]) {
-          for (const item of copy[key] ?? []) upsertInto(s, key, structuredClone(item) as never)
-        }
-      })
+      const saving: Promise<void>[] = []
+      for (const key of ['works', 'editions', 'shelves', 'entries', 'reads', 'logs'] as ListKey[]) {
+        const items = (part[key] ?? []) as { id: string }[]
+        if (items.length) saving.push(apply({ t: 'upsert', key, items: structuredClone(items) }))
+      }
+      await Promise.all(saving)
     },
     async catalogueFor() {
       return { works: [], editions: [] }
@@ -214,6 +269,8 @@ export function createLocalBackend(): Backend {
     async wipe() {
       queue.forEach((p) => p.done())
       queue = []
+      unsaved = []
+      journal([])
       while (pumping) await pumping
       snap = emptySnapshot()
       await withLock(() => idbSet(KEY, snap))
