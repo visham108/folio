@@ -92,9 +92,25 @@ export interface Entry {
   owned: boolean
   tags: string[]
   shelfIds: string[]
+  /** How the book felt to you (see MOODS). */
+  moods?: string[]
+  pace?: Pace
   addedAt: string
   updatedAt: string
 }
+
+export type Pace = 'slow' | 'medium' | 'fast'
+export const PACES: { id: Pace; label: string }[] = [
+  { id: 'slow', label: 'Slow' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'fast', label: 'Fast' },
+]
+
+/** A fixed vocabulary keeps mood stats meaningful (StoryGraph uses a similar set). */
+export const MOODS = [
+  'adventurous', 'challenging', 'dark', 'emotional', 'funny', 'hopeful',
+  'informative', 'inspiring', 'lighthearted', 'mysterious', 'reflective', 'relaxing', 'sad', 'tense',
+] as const
 
 export type ReadState = 'reading' | 'finished' | 'dnf' | 'paused'
 

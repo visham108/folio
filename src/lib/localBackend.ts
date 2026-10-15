@@ -7,13 +7,22 @@ const DB = 'folio'
 const STORE = 'kv'
 const KEY = 'snapshot'
 
+// One connection for the page's lifetime, so a write can start straight away when the tab closes.
+let dbHandle: IDBDatabase | null = null
+let dbOpening: Promise<IDBDatabase> | null = null
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (dbHandle) return Promise.resolve(dbHandle)
+  dbOpening ??= new Promise<IDBDatabase>((resolve, reject) => {
     const req = indexedDB.open(DB, 1)
     req.onupgradeneeded = () => req.result.createObjectStore(STORE)
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
+    req.onsuccess = () => {
+      dbHandle = req.result
+      dbHandle.onclose = () => { dbHandle = null; dbOpening = null }
+      resolve(dbHandle)
+    }
+    req.onerror = () => { dbOpening = null; reject(req.error) }
   })
+  return dbOpening
 }
 
 async function idbGet<T>(key: string): Promise<T | undefined> {
@@ -30,6 +39,7 @@ async function idbSet(key: string, value: unknown): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite')
     tx.objectStore(STORE).put(value, key)
+    tx.commit?.()
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
   })
@@ -39,7 +49,6 @@ type ListKey = 'works' | 'editions' | 'entries' | 'reads' | 'logs' | 'shelves'
 
 export function createLocalBackend(): Backend {
   let snap: Snapshot | null = null
-  let timer: ReturnType<typeof setTimeout> | undefined
 
   const ensure = async () => {
     if (!snap) {
@@ -49,10 +58,21 @@ export function createLocalBackend(): Backend {
     }
     return snap
   }
-  // Coalesce bursts of writes (e.g. dragging a progress slider).
+  // Save straight away; changes made while a save is running (e.g. dragging a progress
+  // slider) are folded into one follow-up save.
+  let writing = false
+  let dirty = false
   const persist = () => {
-    clearTimeout(timer)
-    timer = setTimeout(() => snap && idbSet(KEY, snap).catch(console.error), 120)
+    dirty = true
+    if (writing) return
+    writing = true
+    void (async () => {
+      while (dirty && snap) {
+        dirty = false
+        await idbSet(KEY, snap).catch(console.error)
+      }
+      writing = false
+    })()
   }
   const upsert = async <K extends ListKey>(key: K, item: Snapshot[K][number]) => {
     const s = await ensure()
@@ -127,6 +147,10 @@ export function createLocalBackend(): Backend {
       }
     },
     async catalogueFor() {
+      return { works: [], editions: [] }
+    },
+    async seriesWorks() {
+      // On this device the only books are your own, which the app already has.
       return { works: [], editions: [] }
     },
     async fetchWork() {

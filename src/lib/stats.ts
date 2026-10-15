@@ -170,3 +170,185 @@ export function streak(logs: LogPoint[]): { current: number; best: number } {
   const yest = new Date(t.getTime() - 86400000).toISOString().slice(0, 10)
   return { current: last === todayIso || last === yest ? run : 0, best }
 }
+
+// ── Deeper patterns ───────────────────────────────────────────────────────────
+
+const DAY = 86400000
+const isoDay = (s?: string) => (s && s.length === 10 ? Date.parse(s + 'T12:00:00Z') : NaN)
+const yearOfDate = (s?: string) => (s ? parseInt(s.slice(0, 4), 10) : NaN)
+
+/** Cumulative books finished through the year, against the steady pace a goal needs. */
+export function goalRace(items: Completion[], year: number, goal: number) {
+  const start = Date.UTC(year, 0, 1)
+  const days = (Date.UTC(year + 1, 0, 1) - start) / DAY
+  const now = new Date()
+  const lastDay = now.getUTCFullYear() === year ? Math.floor((Date.now() - start) / DAY) : now.getUTCFullYear() > year ? days - 1 : -1
+  const perDay = new Array(days).fill(0)
+  for (const c of items) {
+    if (c.year !== year) continue
+    const t = isoDay(c.read.finishedOn)
+    const d = Number.isFinite(t) ? Math.floor((t - start) / DAY) : c.month != null ? Math.floor(((Date.UTC(year, c.month + 1, 1) - start) / DAY) - 1) : days - 1
+    perDay[Math.min(days - 1, Math.max(0, d))]++
+  }
+  const you: { x: number; y: number }[] = []
+  let sum = 0
+  for (let d = 0; d <= lastDay; d++) { sum += perDay[d]; you.push({ x: d, y: sum }) }
+  const pace = [{ x: 0, y: 0 }, { x: days - 1, y: goal }]
+  const expectedNow = lastDay >= 0 ? (goal * (lastDay + 1)) / days : 0
+  return { days, you, pace, done: sum, expectedNow }
+}
+
+export interface SpeedPoint { key: string; label: string; pagesPerDay: number; hoursPerWeek: number }
+
+/**
+ * Reading speed per period. Daily progress logs are the truth where they exist;
+ * periods without logs fall back to the books finished in them.
+ */
+export function readingSpeed(items: Completion[], logs: LogPoint[], periods: { key: string; label: string; from: number; to: number }[]): SpeedPoint[] {
+  return periods.map((p) => {
+    const inP = (t: number) => t >= p.from && t < p.to
+    const pl = logs.filter((l) => inP(isoDay(l.on)))
+    let pages = 0, minutes = 0
+    if (pl.length) {
+      for (const l of pl) { if (l.amount <= 0) continue; if (l.medium === 'audio') minutes += l.amount; else pages += l.amount }
+    } else {
+      for (const c of items) {
+        const t = isoDay(c.read.finishedOn) || (c.month != null ? Date.UTC(c.year, c.month, 15) : NaN)
+        if (inP(t)) { pages += c.pages; minutes += c.minutes }
+      }
+    }
+    const days = Math.max(1, Math.min(p.to, Date.now()) - p.from) / DAY
+    return { key: p.key, label: p.label, pagesPerDay: pages / days, hoursPerWeek: (minutes / 60) / (days / 7) }
+  })
+}
+
+export const monthPeriods = (year: number) =>
+  Array.from({ length: 12 }, (_, m) => ({ key: String(m), label: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m], from: Date.UTC(year, m, 1), to: Date.UTC(year, m + 1, 1) }))
+    .filter((p) => p.from <= Date.now())
+
+export const yearPeriods = (years: number[]) =>
+  years.map((y) => ({ key: String(y), label: String(y), from: Date.UTC(y, 0, 1), to: Date.UTC(y + 1, 0, 1) }))
+
+/** Share of books in each format, per year (percentages). */
+export function formatMixByYear(items: Completion[], years: number[]) {
+  return years.map((y) => {
+    const ys = items.filter((c) => c.year === y)
+    const n = ys.length || 1
+    const parts: Record<Medium, number> = { print: 0, ebook: 0, audio: 0 }
+    for (const c of ys) parts[c.medium]++
+    return { key: String(y), label: String(y), total: ys.length, parts: { print: (parts.print / n) * 100, audio: (parts.audio / n) * 100, ebook: (parts.ebook / n) * 100 } }
+  })
+}
+
+export const PAGE_BUCKETS: [number, number, string][] = [[0, 200, 'Under 200'], [200, 300, '200–299'], [300, 400, '300–399'], [400, 500, '400–499'], [500, 700, '500–699'], [700, Infinity, '700+']]
+export const HOUR_BUCKETS: [number, number, string][] = [[0, 5, 'Under 5h'], [5, 10, '5–10h'], [10, 15, '10–15h'], [15, 20, '15–20h'], [20, Infinity, '20h+']]
+
+/** How many short, medium and long books: pages for print and ebook, hours for audio. */
+export function lengthSpread(items: Completion[]) {
+  const pages = PAGE_BUCKETS.map(([lo, hi, label]) => ({ key: label, label, value: items.filter((c) => c.medium !== 'audio' && c.pages > 0 && c.pages >= lo && c.pages < hi).length }))
+  const hours = HOUR_BUCKETS.map(([lo, hi, label]) => ({ key: label, label, value: items.filter((c) => c.medium === 'audio' && c.minutes > 0 && c.minutes / 60 >= lo && c.minutes / 60 < hi).length }))
+  return { pages, hours, unknown: items.filter((c) => !c.pages && !c.minutes).length }
+}
+
+/** Books by the decade they were first published. */
+export function publicationDecades(items: Completion[]) {
+  const m = new Map<number, number>()
+  for (const c of items) {
+    const y = c.work.firstPublished
+    if (!y) continue
+    const d = y < 1900 ? 1800 : Math.floor(y / 10) * 10
+    m.set(d, (m.get(d) ?? 0) + 1)
+  }
+  const keys = [...m.keys()].sort((a, b) => a - b)
+  if (!keys.length) return []
+  const out = []
+  const first = keys[0] === 1800 ? 1800 : keys[0]
+  for (let d = first; d <= keys[keys.length - 1]; d += d === 1800 ? 100 : 10) {
+    out.push({ key: String(d), label: d === 1800 ? 'Pre-1900' : `${d}s`, value: m.get(d) ?? 0 })
+  }
+  return out
+}
+
+/** Top genres as rows, years as columns, cells are books finished. */
+export function genresByYear(items: Completion[], years: number[], top = 6) {
+  const total = new Map<string, number>()
+  for (const c of items) for (const g of c.work.genres) total.set(g, (total.get(g) ?? 0) + 1)
+  const genres = [...total].sort((a, b) => b[1] - a[1]).slice(0, top).map(([g]) => g)
+  const cells = genres.map((g) => years.map((y) => items.filter((c) => c.year === y && c.work.genres.includes(g)).length))
+  return { genres, years, cells, max: Math.max(1, ...cells.flat()) }
+}
+
+/** Finished vs abandoned, per year. */
+export function finishRate(reads: Read[], years: number[]) {
+  return years.map((y) => {
+    const finished = reads.filter((r) => r.state === 'finished' && yearOfDate(r.finishedOn) === y).length
+    const dnf = reads.filter((r) => r.state === 'dnf' && yearOfDate(r.finishedOn ?? r.startedOn) === y).length
+    return { key: String(y), label: String(y), finished, dnf, rate: finished + dnf ? finished / (finished + dnf) : undefined }
+  })
+}
+
+/** Average days from start to finish, per genre (genres with at least two timed reads). */
+export function daysByGenre(items: Completion[], top = 8) {
+  const m = new Map<string, number[]>()
+  for (const c of items) if (c.days) for (const g of c.work.genres) m.set(g, [...(m.get(g) ?? []), c.days])
+  return [...m].filter(([, d]) => d.length >= 2).map(([name, d]) => ({ name, avg: d.reduce((a, b) => a + b, 0) / d.length, n: d.length }))
+    .sort((a, b) => b.avg - a.avg).slice(0, top)
+}
+
+export const WAIT_BUCKETS: [number, number, string][] = [[0, 7, 'Within a week'], [7, 31, 'Within a month'], [31, 183, '1–6 months'], [183, 366, '6–12 months'], [366, Infinity, 'Over a year']]
+
+/** How long books sat on the want-to-read list before you started them, and who's still waiting. */
+export function tbrWait(entries: Entry[], readsByEntry: Map<string, Read[]>, works: Map<string, Work>) {
+  const waits: number[] = []
+  for (const e of entries) {
+    const rs = readsByEntry.get(e.id) ?? []
+    const first = rs.map((r) => r.startedOn ?? r.finishedOn).filter((d): d is string => !!d && d.length === 10).sort()[0]
+    if (!first) continue
+    const w = (isoDay(first) - Date.parse(e.addedAt)) / DAY
+    if (Number.isFinite(w) && w >= 0) waits.push(w)
+  }
+  const buckets = WAIT_BUCKETS.map(([lo, hi, label]) => ({ key: label, label, value: waits.filter((w) => w >= lo && w < hi).length }))
+  const waiting = entries
+    .filter((e) => e.status === 'want' && !(readsByEntry.get(e.id) ?? []).length)
+    .map((e) => ({ entry: e, work: works.get(e.workId), days: Math.floor((Date.now() - Date.parse(e.addedAt)) / DAY) }))
+    .filter((x) => x.work && Number.isFinite(x.days))
+    .sort((a, b) => b.days - a.days)
+  const median = waits.length ? [...waits].sort((a, b) => a - b)[Math.floor(waits.length / 2)] : undefined
+  return { buckets, waiting: waiting.slice(0, 5), waitingCount: waiting.length, median }
+}
+
+/** One dot per rated book: length (page-equivalents) against your rating. */
+export function ratingVsLength(items: Completion[], s: Settings) {
+  return items
+    .filter((c) => c.rating && (c.pages || c.minutes))
+    .map((c) => ({ id: c.read.id, workId: c.work.id, title: c.work.title, medium: c.medium, x: Math.round(pageEquivalent(c, s)), y: c.rating!, pages: c.pages, minutes: c.minutes }))
+}
+
+/** Average books finished in each calendar month, across the years you have data for. */
+export function seasonalRhythm(items: Completion[]) {
+  const years = new Set(items.filter((c) => c.month != null).map((c) => c.year))
+  const n = Math.max(1, years.size)
+  return Array.from({ length: 12 }, (_, m) => ({
+    key: String(m),
+    label: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m],
+    value: items.filter((c) => c.month === m).length / n,
+  }))
+}
+
+/** Moods and pace across the books finished in the period. */
+export function moodProfile(items: Completion[]) {
+  const moods = new Map<string, number>()
+  const pace = { slow: 0, medium: 0, fast: 0 }
+  const seen = new Set<string>()
+  for (const c of items) {
+    if (seen.has(c.entry.id)) continue
+    seen.add(c.entry.id)
+    for (const m of c.entry.moods ?? []) moods.set(m, (moods.get(m) ?? 0) + 1)
+    if (c.entry.pace) pace[c.entry.pace]++
+  }
+  return {
+    moods: [...moods].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
+    pace,
+    tagged: [...seen].length,
+  }
+}

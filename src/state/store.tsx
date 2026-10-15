@@ -3,6 +3,7 @@ import type { Backend } from '../lib/backend'
 import { createLocalBackend } from '../lib/localBackend'
 import { sampleLibrary } from '../lib/sample'
 import { mergeLibrary } from '../lib/merge'
+import { cacheSnapshot, withOffline, type OfflineBackend } from '../lib/offline'
 import { cloudConfigured, createCloudBackend, supabase } from '../lib/supabaseBackend'
 import {
   emptySnapshot, mediumOf, type Edition, type Entry, type LogPoint, type Read, type Settings, type Shelf,
@@ -29,6 +30,8 @@ export interface NewBook {
   startedOn?: string
   finishedOn?: string
   rating?: number
+  /** The work and edition already exist in the shared catalogue: show them, don't save them again. */
+  inCatalogue?: boolean
 }
 
 interface Store {
@@ -72,6 +75,8 @@ interface Store {
   mergeIn(src: Pick<Snapshot, 'works' | 'editions' | 'entries' | 'reads' | 'logs' | 'shelves'>): Promise<{ books: number; matched: number }>
   /** Books saved on this device before signing in (cloud only). */
   deviceBooks: number
+  /** Changes made offline, waiting to sync. */
+  pending: number
   moveDeviceBooks(): Promise<number>
   dismissDeviceBooks(discard: boolean): Promise<void>
   /** Bring a catalogue book that isn't on your shelves into view (shared links). */
@@ -99,6 +104,7 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
   const [ready, setReady] = useState(false)
   const [data, setData] = useState<Snapshot>(emptySnapshot)
   const [deviceBooks, setDeviceBooks] = useState(0)
+  const [pending, setPending] = useState(0)
   const be = useRef<Backend | null>(null)
   be.current = backend
   // Keep the latest callback without making boot() depend on it.
@@ -107,7 +113,15 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
 
   const boot = useCallback(async () => {
     let b: Backend | null = null
-    if (cloudConfigured) b = await createCloudBackend().catch(() => null)
+    if (cloudConfigured) {
+      const cloud = await createCloudBackend().catch(() => null)
+      if (cloud) {
+        b = await withOffline(cloud, cloud.userId!, {
+          onQueue: setPending,
+          onDropped: (msg) => errRef.current('A change made offline couldn’t be saved: ' + msg),
+        })
+      }
+    }
     if (!b && (DEMO || getMode() === 'local')) b = createLocalBackend()
     if (b) {
       try {
@@ -132,6 +146,27 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
     setBackend(b)
     setReady(true)
   }, [])
+
+  // Back online: send anything made offline, then refresh from the server.
+  useEffect(() => {
+    const onOnline = async () => {
+      const b = be.current as OfflineBackend | null
+      if (!b || b.kind !== 'cloud' || !b.flush) return
+      try {
+        await b.flush()
+        setData(await b.loadAll())
+      } catch { /* still flaky: the outbox keeps everything */ }
+    }
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [])
+
+  // Keep this device's copy of the signed-in library current, so it opens offline.
+  useEffect(() => {
+    if (backend?.kind !== 'cloud' || !backend.userId) return
+    const t = setTimeout(() => cacheSnapshot(backend.userId!, data), 1500)
+    return () => clearTimeout(t)
+  }, [data, backend])
 
   useEffect(() => {
     boot()
@@ -214,10 +249,11 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
 
     addBook(b) {
       const t = nowIso()
-      const existing = b.work.id ? works.get(b.work.id) : undefined
+      const existing = b.work.id ? works.get(b.work.id) ?? (b.inCatalogue ? (b.work as Work) : undefined) : undefined
       const work: Work = existing ?? { ...b.work, id: b.work.id ?? uid(), createdAt: t, createdBy: userId }
-      const edition: Edition = b.edition.id && editions.get(b.edition.id)
-        ? editions.get(b.edition.id)!
+      const knownEdition = b.edition.id ? editions.get(b.edition.id) ?? (b.inCatalogue ? ({ ...b.edition, workId: work.id } as Edition) : undefined) : undefined
+      const edition: Edition = knownEdition
+        ? knownEdition
         : { ...b.edition, id: b.edition.id ?? uid(), workId: work.id, createdAt: t, createdBy: userId }
       const prev = entryByWork.get(work.id)
       const entry: Entry = prev
@@ -236,13 +272,13 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
             rating: b.rating,
           }
           : undefined
-      if (!existing) upsertIn('works', work)
-      if (!editions.get(edition.id)) upsertIn('editions', edition)
+      if (!works.has(work.id)) upsertIn('works', work)
+      if (!editions.has(edition.id)) upsertIn('editions', edition)
       upsertIn('entries', entry)
       if (newRead) upsertIn('reads', newRead)
       persist(async (be) => {
         if (!existing) await be.saveWork(work)
-        if (!editions.get(edition.id)) await be.saveEdition(edition)
+        if (!knownEdition) await be.saveEdition(edition)
         await be.saveEntry(entry)
         if (newRead) await be.saveRead(newRead)
       })
@@ -427,6 +463,7 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
       return { books: res.books, matched: res.matched }
     },
     deviceBooks,
+    pending,
     async moveDeviceBooks() {
       const local = createLocalBackend()
       const snap = await local.loadAll()

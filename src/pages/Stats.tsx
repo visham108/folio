@@ -4,6 +4,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { BarList, Columns, Heatmap, Legend, MEDIA, type ColumnDatum } from '../components/Charts'
 import { Cover } from '../components/Cover'
+import { AllTimePatterns, YearPatterns } from '../components/StatsPatterns'
 import { Empty, Ring, Segmented } from '../components/ui'
 import { dailyActivity, pageEquivalent, summarize, yearsWithData, type Completion } from '../lib/stats'
 import type { Medium } from '../lib/types'
@@ -195,6 +196,8 @@ export function Stats() {
             )}
           </div>
 
+          <YearPatterns year={year} items={all} />
+
           <section className="section">
             <div className="section-head"><h2>Your {year} shelf</h2><span className="muted small">In the order you finished them</span></div>
             <div className="year-shelf">
@@ -209,6 +212,8 @@ export function Stats() {
           </section>
         </>
       )}
+      {!allTime && sum.books === 0 && <YearPatterns year={year} items={all} />}
+      {allTime && <AllTimePatterns items={all} years={years.filter((y) => all.some((c) => c.year === y))} />}
     </div>
   )
 }

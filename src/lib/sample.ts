@@ -30,7 +30,7 @@ const BOOKS: B[] = [
   ['The Martian', 'Andy Weir', 2011, 369, '9780553418026', 'Science Fiction', 653],
   ['Born a Crime', 'Trevor Noah', 2016, 304, '9780399588174', 'Memoir,Nonfiction', 524],
   ['Lessons in Chemistry', 'Bonnie Garmus', 2022, 390, '9780385547345', 'Historical Fiction'],
-  ['The Three-Body Problem', 'Cixin Liu', 2008, 400, '9780765382030', 'Science Fiction', undefined, { originalLanguage: 'Chinese' }],
+  ['The Three-Body Problem', 'Cixin Liu', 2008, 400, '9780765382030', 'Science Fiction', undefined, { originalLanguage: 'Chinese', series: 'Remembrance of Earth’s Past', seriesIndex: 1 }],
   ['Demon Copperhead', 'Barbara Kingsolver', 2022, 548, '9780063251922', 'Literary Fiction'],
   ['Intermezzo', 'Sally Rooney', 2024, 448, '9780374602635', 'Literary Fiction'],
   ['The Anxious Generation', 'Jonathan Haidt', 2024, 385, '9780593655030', 'Psychology,Nonfiction', 660],
@@ -46,6 +46,9 @@ const BOOKS: B[] = [
   ['Pachinko', 'Min Jin Lee', 2017, 496, '9781455563920', 'Historical Fiction'],
   ['Kindred', 'Octavia E. Butler', 1979, 264, '9780807083697', 'Science Fiction,Classics'],
   ['The Goldfinch', 'Donna Tartt', 2013, 771, '9780316055437', 'Literary Fiction'],
+  ['Dune Messiah', 'Frank Herbert', 1969, 336, '9780593098233', 'Science Fiction', 512, { series: 'Dune', seriesIndex: 2 }],
+  ['The Dark Forest', 'Cixin Liu', 2008, 512, '9780765386694', 'Science Fiction', undefined, { originalLanguage: 'Chinese', series: 'Remembrance of Earth’s Past', seriesIndex: 2 }],
+  ['The Wise Man’s Fear', 'Patrick Rothfuss', 2011, 994, '9780756407919', 'Fantasy', undefined, { series: 'The Kingkiller Chronicle', seriesIndex: 2 }],
 ]
 
 function rng(seed: number) {
@@ -118,8 +121,12 @@ export function sampleLibrary(): Partial<Snapshot> {
       entry = {
         id: uid(), workId: works[bi].id, editionId: printEd[bi].id, status: 'read', favorite: rating === 5 && r() > 0.4,
         owned: kind === 'p', tags: [], shelfIds: rating === 5 ? [shelves[0].id] : r() > 0.85 ? [shelves[1].id] : [],
-        addedAt: new Date(base + (off - 20) * 86400000).toISOString(), updatedAt: t,
+        // Some go straight from shop to reading; others sit on the pile for a year or two.
+        addedAt: new Date(base + (off - [3, 12, 25, 60, 140, 300, 520][bi % 7]) * 86400000).toISOString(), updatedAt: t,
       }
+      const moodSets = [['mysterious', 'reflective'], ['adventurous', 'tense'], ['emotional', 'sad'], ['funny', 'lighthearted'], ['informative', 'reflective'], ['dark', 'tense'], ['hopeful', 'inspiring'], ['adventurous', 'funny']]
+      entry.moods = moodSets[Math.floor(r() * moodSets.length)]
+      entry.pace = (['slow', 'medium', 'fast'] as const)[Math.floor(r() * 3)]
       entryFor.set(bi, entry)
       entries.push(entry)
     }
@@ -177,7 +184,7 @@ export function sampleLibrary(): Partial<Snapshot> {
   }
   for (const [i, w] of works.entries()) {
     if (!entries.some((e) => e.workId === w.id)) {
-      entries.push({ id: uid(), workId: w.id, editionId: printEd[i].id, status: 'want', favorite: false, owned: r() > 0.6, tags: [], shelfIds: [], addedAt: t, updatedAt: t })
+      entries.push({ id: uid(), workId: w.id, editionId: printEd[i].id, status: 'want', favorite: false, owned: r() > 0.6, tags: [], shelfIds: [], addedAt: new Date(now.getTime() - (10 + ((i * 97) % 700)) * 86400000).toISOString(), updatedAt: t })
     }
   }
   return { works, editions, entries, reads, logs, shelves }

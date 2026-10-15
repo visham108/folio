@@ -60,12 +60,13 @@ const editionTo = (e: Edition): Row => ({
 const entryFrom = (r: Row): Entry => ({
   id: r.id, workId: r.work_id, editionId: und(r.edition_id), status: r.status,
   rating: r.rating == null ? undefined : Number(r.rating), review: und(r.review), favorite: r.favorite,
-  owned: r.owned, tags: r.tags ?? [], shelfIds: r.shelf_ids ?? [], addedAt: r.added_at, updatedAt: r.updated_at,
+  owned: r.owned, tags: r.tags ?? [], shelfIds: r.shelf_ids ?? [], moods: r.moods ?? [], pace: und(r.pace),
+  addedAt: r.added_at, updatedAt: r.updated_at,
 })
 const entryTo = (e: Entry): Row => ({
   id: e.id, work_id: e.workId, edition_id: e.editionId ?? null, status: e.status, rating: e.rating ?? null,
   review: e.review ?? null, favorite: e.favorite, owned: e.owned, tags: e.tags, shelf_ids: e.shelfIds,
-  added_at: e.addedAt, updated_at: e.updatedAt,
+  moods: e.moods ?? [], pace: e.pace ?? null, added_at: e.addedAt, updated_at: e.updatedAt,
 })
 const readFrom = (r: Row): Read => ({
   id: r.id, entryId: r.entry_id, editionId: und(r.edition_id), state: r.state, startedOn: und(r.started_on),
@@ -93,12 +94,30 @@ async function all(q: PromiseLike<{ data: Row[] | null; error: unknown }>): Prom
   return data ?? []
 }
 
+const LAST_USER = 'folio.lastUser'
+interface LastUser { id: string; email?: string; isAdmin: boolean }
+function lastUser(): LastUser | null {
+  try { return JSON.parse(localStorage.getItem(LAST_USER) ?? 'null') } catch { return null }
+}
+function rememberUser(u: LastUser | null) {
+  try { if (u) localStorage.setItem(LAST_USER, JSON.stringify(u)); else localStorage.removeItem(LAST_USER) } catch { /* storage blocked */ }
+}
+
 export async function createCloudBackend(): Promise<Backend | null> {
   const sb = supabase()
-  const { data } = await sb.auth.getSession()
-  const user = data.session?.user
+  const { data } = await sb.auth.getSession().catch(() => ({ data: { session: null } }))
+  let user: { id: string; email?: string; user_metadata?: Record<string, string> } | undefined = data.session?.user
+  // Offline, the session can't be refreshed: open the library for whoever was last
+  // signed in here. Changes queue up and sync, with a fresh session, once back online.
+  const last = lastUser()
+  if (!user && typeof navigator !== 'undefined' && navigator.onLine === false && last) user = { id: last.id, email: last.email }
   if (!user) return null
-  const { data: admin } = await sb.rpc('is_super_admin')
+  let admin = last?.id === user.id ? last.isAdmin : false
+  try {
+    const { data: isAdmin, error } = await sb.rpc('is_super_admin')
+    if (!error) admin = isAdmin === true
+  } catch { /* offline: keep the remembered value */ }
+  rememberUser({ id: user.id, email: user.email, isAdmin: admin })
 
   const ok = async (p: PromiseLike<{ error: unknown }>) => {
     const { error } = await p
@@ -231,6 +250,15 @@ export async function createCloudBackend(): Promise<Backend | null> {
       for (const c of chunks(needEds)) for (const r of await all(sb.from('editions').select('*').in('work_id', c))) edRows.set(r.id, r)
       return { works: [...workRows.values()].map(workFrom), editions: [...edRows.values()].map(editionFrom) }
     },
+    async seriesWorks(names) {
+      const uniq = [...new Set(names.map((n) => n.trim()).filter(Boolean))]
+      if (!uniq.length) return { works: [], editions: [] }
+      const works: Row[] = []
+      for (const c of chunks(uniq, 100)) works.push(...(await all(sb.from('works').select('*').in('series', c).limit(2000))))
+      const editions: Row[] = []
+      for (const c of chunks(works.map((w) => w.id as string))) editions.push(...(await all(sb.from('editions').select('*').in('work_id', c))))
+      return { works: works.map(workFrom), editions: editions.map(editionFrom) }
+    },
     async fetchWork(id) {
       const { data: w } = await sb.from('works').select('*').eq('id', id).maybeSingle()
       if (!w) return null
@@ -252,6 +280,7 @@ export async function createCloudBackend(): Promise<Backend | null> {
       return sb.storage.from('covers').getPublicUrl(path).data.publicUrl
     },
     async signOut() {
+      rememberUser(null)
       await sb.auth.signOut()
     },
     async wipe() {

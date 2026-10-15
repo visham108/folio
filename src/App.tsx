@@ -13,10 +13,12 @@ const loaders = {
   book: () => import('./pages/BookPage'),
   stats: () => import('./pages/Stats'),
   settings: () => import('./pages/Settings'),
+  series: () => import('./pages/SeriesPage'),
 }
 const AddBook = lazy(() => loaders.add().then((m) => ({ default: m.AddBook })))
 const BookPage = lazy(() => loaders.book().then((m) => ({ default: m.BookPage })))
 const Stats = lazy(() => loaders.stats().then((m) => ({ default: m.Stats })))
+const SeriesPage = lazy(() => loaders.series().then((m) => ({ default: m.SeriesPage })))
 const SettingsPage = lazy(() => loaders.settings().then((m) => ({ default: m.SettingsPage })))
 
 function usePreloadScreens(enabled: boolean) {
@@ -30,7 +32,7 @@ import { StoreProvider, useStore } from './state/store'
 import { ToastProvider } from './state/toast'
 
 const TITLES: [RegExp, string][] = [
-  [/^\/$/, 'Today'], [/^\/library/, 'Library'], [/^\/book\//, 'Book'], [/^\/add/, 'Add a book'],
+  [/^\/$/, 'Today'], [/^\/library/, 'Library'], [/^\/book\//, 'Book'], [/^\/add/, 'Add a book'], [/^\/series\//, 'Series'],
   [/^\/stats/, 'Stats'], [/^\/settings/, 'Settings'],
 ]
 
@@ -53,9 +55,17 @@ function OfflineNotice() {
     window.addEventListener('offline', down)
     return () => { window.removeEventListener('online', up); window.removeEventListener('offline', down) }
   }, [])
-  const { backend } = useStore()
-  if (online || backend?.kind !== 'cloud') return null
-  return <div className="offline" role="status">You’re offline. Changes made now may not save.</div>
+  const { backend, pending } = useStore()
+  if (backend?.kind !== 'cloud') return null
+  if (!online) {
+    return (
+      <div className="offline" role="status">
+        You’re offline. Changes are kept on this device{pending ? ` (${pending} waiting)` : ''} and sync when you’re back.
+      </div>
+    )
+  }
+  if (pending) return <div className="offline" role="status">Syncing {pending} {pending === 1 ? 'change' : 'changes'}…</div>
+  return null
 }
 
 function Routed() {
@@ -82,6 +92,7 @@ function Routed() {
         <Route path="library/:pile" element={<Library />} />
         <Route path="book/:workId" element={<BookPage />} />
         <Route path="add" element={<AddBook />} />
+        <Route path="series/:name" element={<SeriesPage />} />
         <Route path="stats" element={<Stats />} />
         <Route path="stats/:year" element={<Stats />} />
         <Route path="settings" element={<SettingsPage />} />

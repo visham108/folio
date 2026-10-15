@@ -11,13 +11,17 @@ rereads, editions and stats that are worth looking at.
 | **Duplicate detection** | When you add a book, Folio checks your library and the shared catalogue for the same book: ISBN first, then fuzzy title/author matching that copes with subtitles, series suffixes, initials and typos. You confirm, and the match becomes a new edition rather than a duplicate. |
 | **Rereads** | Every pass through a book is its own *read* with its own dates, edition and rating. You can reread on audio after a print read. |
 | **Piles & shelves** | Want to read · Reading · Read · Paused · DNF, plus your own shelves, tags, favourites and "I own this". |
+| **Smart shelves** | Shelves that fill themselves and appear only when they hold something: Quick reads, Long haul, Next in a series, Ready to listen, Owned not yet read, Waiting over a year, Unfinished business, Your best, Read more than once, and more. |
+| **Series** | Every series gets its own page: reading order, how far through you are, what's next, and other volumes already in the catalogue that you can add in one tap. "Next in your series" also shows on Today. |
+| **How it felt** | Optional mood tags (adventurous, dark, hopeful, tense…) and pace (slow, medium, fast) for each book, which feed the mood and pace stats. Imported from StoryGraph automatically. |
 | **Adding books** | Search Google Books and Open Library, scan the ISBN barcode with your phone camera, photograph the cover, or type it in. |
 | **Cover studio** | Photograph a cover and Folio finds the book, straightens the perspective, fixes colour and contrast, and sharpens it. Books without a cover get a generated typographic one. |
 | **Tidy data** | Anything typed in is converted to title case: "the left hand of darkness" becomes *The Left Hand of Darkness*, "j.r.r. tolkien" becomes *J.R.R. Tolkien*. Deliberate casing such as "McCarthy" or "NASA" is kept. |
-| **Stats** | Books, pages, hours and *combined* (audio converted to page-equivalents, adjustable) by month and by year, split by format; a reading-days heatmap; streaks; goal pace; longest, shortest and fastest reads; ratings, authors and genres; your year as a shelf of covers. Every chart has a table view. |
+| **Stats** | Books, pages, hours and *combined* (audio converted to page-equivalents, adjustable) by month and by year, split by format; a reading-days heatmap; streaks; goal pace and a race against your goal; pages a day and listening a week; format mix over the years; book lengths; when your books were written; rating against length; finish rate; days to finish by genre; genres over the years; seasonal rhythm; how long books wait on your want-to-read list; series progress; moods and pace; your year as a shelf of covers. Every chart has a table view. |
 | **Import from anywhere** | Drop in a CSV from Goodreads, StoryGraph, LibraryThing or any spreadsheet. Folio recognises the columns (by name, synonyms and the values themselves) and translates statuses, formats, rating scales (5, 10 or 100), date orders, read-date ranges, rereads, narrators and translators. You review and adjust the mapping before anything is added, and books already in the catalogue are matched rather than duplicated. |
 | **Shared catalogue, with an owner** | Anyone can add books and editions; people can edit what they added. One super admin can edit or remove anything, merge duplicate books, and see the full change history. Every catalogue change is logged with who made it and the before/after values. |
-| **Your data** | JSON export/restore at any time. |
+| **Your data** | Full backup and restore (JSON), plus spreadsheet exports: a Goodreads-format CSV that Goodreads and StoryGraph can import, and a full CSV with one row per read. |
+| **Works offline** | Once loaded, Folio opens without a connection. Changes made offline are saved on the device and sync, in order, when you're back online. |
 
 ### What's required when adding a book
 
@@ -57,7 +61,7 @@ Sessions persist, so you stay signed in until you sign out.
 ## Tests
 
 ```bash
-npm test          # unit tests: title case, matching, importer, merging, stats
+npm test          # unit tests: title case, matching, importer, exporter, merging, stats, series, offline queue
 npm run test:e2e  # browser smoke test (desktop + phone) against the production build
 ```
 
@@ -92,14 +96,19 @@ src/
   lib/match.ts            fuzzy duplicate / edition matcher
   lib/stats.ts            completions, yearly summaries, heatmap, streaks
   lib/image.ts            cover detection, perspective warp, enhancement
-  lib/goodreads.ts        CSV import
+  lib/importer.ts         CSV import with column/value detection
+  lib/exporter.ts         Goodreads-format and full CSV export
+  lib/series.ts           series ordering and progress
+  lib/smartShelves.ts     self-filling shelves
+  lib/offline.ts          offline snapshot cache and outbox
   lib/titleCase.ts        title/name casing for typed input
   lib/lookup.ts           Google Books + Open Library search
   lib/localBackend.ts     on-device storage (IndexedDB)
   lib/supabaseBackend.ts  cloud storage and auth
   state/store.tsx         in-memory library with optimistic writes
-  pages/                  Today, Library, Book, Add, Stats, Settings, Login
+  pages/                  Today, Library, Book, Series, Add, Stats, Settings, Login
   components/             covers, charts, sheets, cover studio, scanner…
+public/sw.js              service worker: app shell offline
 supabase/
   migrations/             schema + RLS
 ```

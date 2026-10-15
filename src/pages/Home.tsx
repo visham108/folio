@@ -12,7 +12,8 @@ import { pageEquivalent, streak, summarize } from '../lib/stats'
 import type { Read } from '../lib/types'
 import { compact, fmtDate, plural } from '../lib/util'
 import { useStore } from '../state/store'
-import { useCompletions, useYearProgress } from './hooks'
+import { useCompletions, useSeries, useYearProgress } from './hooks'
+import { seriesSlug } from '../lib/series'
 
 function greeting() {
   const h = new Date().getHours()
@@ -26,6 +27,8 @@ export function Home() {
   const yp = useYearProgress()
   const comps = useCompletions()
   const [sheetRead, setSheetRead] = useState<Read>()
+  const { series } = useSeries()
+  const nextInSeries = series.filter((x) => x.next).slice(0, 6)
   const year = new Date().getFullYear()
   const sum = useMemo(() => summarize(comps, year), [comps, year])
   const st = useMemo(() => streak(data.logs), [data.logs])
@@ -138,6 +141,26 @@ export function Home() {
           </div>
         )}
       </section>
+
+      {nextInSeries.length > 0 && (
+        <section className="section">
+          <div className="section-head">
+            <h2>Next in your series</h2>
+          </div>
+          <div className="series-next">
+            {nextInSeries.map((x) => (
+              <Link key={x.name} to={`/series/${seriesSlug(x.name)}`} className="series-next-card card">
+                <Cover work={x.next!.work} edition={editions.get(store.editionsByWork.get(x.next!.work.id)?.[0]?.id ?? '')} size="sm" />
+                <div>
+                  <span className="kicker">{x.name}{x.next!.index != null ? ` · Book ${x.next!.index}` : ''}</span>
+                  <b>{x.next!.work.title}</b>
+                  <span className="muted small">{x.read} of {x.books.length} read{x.next!.state === 'none' ? ' · not on your shelves yet' : ''}</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {upNext.length > 0 && (
         <section className="section">

@@ -47,6 +47,9 @@ describe('StoryGraph export', () => {
     expect(r.plan.data.editions[2].translators).toEqual(['Ken Liu'])
     expect(r.plan.data.works[1].authors).toEqual(['Terry Pratchett', 'Neil Gaiman'])
     expect(r.plan.data.entries[1].status).toBe('dnf')
+    expect(piranesi.moods).toEqual(['mysterious'])
+    expect(piranesi.pace).toBe('medium')
+    expect(r.plan.data.entries[1]).toMatchObject({ moods: ['funny'], pace: 'fast' })
   })
 })
 

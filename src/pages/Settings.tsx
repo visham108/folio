@@ -1,10 +1,11 @@
-import { Download, FileUp, LogOut, Moon, ShieldCheck, Sparkles, Sun, SunMoon, Trash2, Upload } from 'lucide-react'
+import { Download, FileSpreadsheet, FileUp, LogOut, Moon, ShieldCheck, Sparkles, Sun, SunMoon, Trash2, Upload } from 'lucide-react'
 import { nameCase } from '../lib/titleCase'
 import { useEffect, useRef, useState } from 'react'
 import { ConfirmSheet, Field, Segmented } from '../components/ui'
 import { ImportSheet } from '../components/ImportSheet'
 import { sampleLibrary } from '../lib/sample'
 import { downloadBackup, lastBackup } from '../lib/backup'
+import { downloadText, fullCsv, goodreadsCsv } from '../lib/exporter'
 import { fmtDate } from '../lib/util'
 import type { Settings, Snapshot } from '../lib/types'
 import { useStore } from '../state/store'
@@ -106,6 +107,16 @@ export function SettingsPage() {
           <button className="btn btn-ghost" disabled={!!busy} onClick={() => jsonFile.current?.click()}><Upload size={16} /> {busy ?? 'Restore from export'}</button>
         </div>
         <input ref={jsonFile} type="file" accept="application/json,.json" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) importJson(f); e.target.value = '' }} />
+        <h4 className="sub-head">Export as a spreadsheet</h4>
+        <p className="muted small">For other apps or Excel. Goodreads only stores whole stars, so half-star ratings are rounded in that file.</p>
+        <div className="btn-row">
+          <button className="btn btn-ghost" onClick={() => { downloadText(goodreadsCsv(data), `folio-goodreads-${new Date().toISOString().slice(0, 10)}.csv`); toast('Goodreads-format CSV downloaded') }}>
+            <FileSpreadsheet size={16} /> Goodreads / StoryGraph CSV
+          </button>
+          <button className="btn btn-ghost" onClick={() => { downloadText(fullCsv(data), `folio-library-${new Date().toISOString().slice(0, 10)}.csv`); toast('Full spreadsheet downloaded') }}>
+            <FileSpreadsheet size={16} /> Full spreadsheet (one row per read)
+          </button>
+        </div>
       </section>
 
       <section className="card form-card">

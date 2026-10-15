@@ -12,7 +12,8 @@ import { Bar, Chips, ConfirmSheet, Empty, Field, Segmented, Sheet, Stars } from 
 import { AdminPanel } from '../components/AdminPanel'
 import { averageColor } from '../lib/image'
 import { progressInfo } from '../lib/progress'
-import { FORMATS, STATUSES, type Edition, type Read, type ReadState, type Status } from '../lib/types'
+import { seriesSlug } from '../lib/series'
+import { FORMATS, MOODS, PACES, STATUSES, type Edition, type Pace, type Read, type ReadState, type Status } from '../lib/types'
 import { coverPalette, daysBetween, fmtDate, fmtDuration, plural, today } from '../lib/util'
 import { useStore } from '../state/store'
 import { useToast } from '../state/toast'
@@ -94,7 +95,7 @@ export function BookPage() {
           </div>
 
           <div className="book-info">
-            {work.series && <div className="eyebrow">{work.series}{work.seriesIndex ? ` · Book ${work.seriesIndex}` : ''}</div>}
+            {work.series && <Link to={`/series/${seriesSlug(work.series)}`} className="eyebrow series-eyebrow">{work.series}{work.seriesIndex ? ` · Book ${work.seriesIndex}` : ''} →</Link>}
             <h1 className="book-title">{work.title}</h1>
             {work.subtitle && <p className="book-sub">{work.subtitle}</p>}
             <p className="book-by">by {work.authors.join(', ')}</p>
@@ -248,6 +249,36 @@ export function BookPage() {
                 })}
               </ol>
             )}
+          </section>
+        )}
+
+        {entry && (
+          <section className="section">
+            <div className="section-head">
+              <h2>How it felt</h2>
+              <span className="muted small">Optional. Feeds your mood and pace stats.</span>
+            </div>
+            <div className="mood-picker" role="group" aria-label="Moods">
+              {MOODS.map((m) => {
+                const on = (entry.moods ?? []).includes(m)
+                return (
+                  <button key={m} className={`pill toggle ${on ? 'on' : ''}`} aria-pressed={on} onClick={() =>
+                    store.updateEntry(entry.id, { moods: on ? (entry.moods ?? []).filter((x) => x !== m) : [...(entry.moods ?? []), m] })}>
+                    {on && <Check size={12} />} {m[0].toUpperCase() + m.slice(1)}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="pace-row">
+              <span className="field-label">Pace</span>
+              <Segmented<Pace | 'none'>
+                size="sm"
+                label="Pace"
+                value={entry.pace ?? 'none'}
+                onChange={(v) => store.updateEntry(entry.id, { pace: v === 'none' ? undefined : v })}
+                options={[{ id: 'none', label: 'Not set' }, ...PACES.map((p) => ({ id: p.id, label: p.label }))]}
+              />
+            </div>
           </section>
         )}
 

@@ -29,6 +29,8 @@ export interface Backend {
   searchCatalog(title: string, authors: string[]): Promise<{ works: Work[]; editions: Edition[] }>
   /** Batch lookup of the shared catalogue by ISBN and main title, used before imports and adds. */
   catalogueFor(q: { isbns: string[]; titles: string[] }): Promise<{ works: Work[]; editions: Edition[] }>
+  /** Every catalogue book in the named series (for series pages and "next in series"). */
+  seriesWorks(names: string[]): Promise<{ works: Work[]; editions: Edition[] }>
   /** Load one catalogue book (and its editions) that isn't on your shelves, e.g. from a shared link. */
   fetchWork(id: string): Promise<{ work: Work; editions: Edition[] } | null>
   /** Admin only: remove an edition from the shared catalogue. */

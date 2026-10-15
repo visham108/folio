@@ -1,6 +1,6 @@
 import { coreTitle, findCandidates } from './match'
 import { nameCase, titleCase } from './titleCase'
-import type { Edition, Entry, Format, Read, Shelf, Snapshot, Status, Work } from './types'
+import { MOODS, type Edition, type Entry, type Format, type Read, type Shelf, type Snapshot, type Status, type Work } from './types'
 import { cleanIsbn, isbn10to13, nowIso, parseDuration, uid } from './util'
 
 /**
@@ -58,7 +58,7 @@ export type FieldId =
   | 'narrators' | 'translators' | 'isbn' | 'isbn13' | 'isbn10' | 'asin' | 'publisher' | 'pages' | 'duration'
   | 'published' | 'firstPublished' | 'format' | 'status' | 'rating' | 'review' | 'notes' | 'dateAdded'
   | 'dateStarted' | 'dateFinished' | 'datesRead' | 'readCount' | 'shelves' | 'tags' | 'owned' | 'favorite'
-  | 'series' | 'seriesIndex' | 'genres' | 'language'
+  | 'series' | 'seriesIndex' | 'genres' | 'language' | 'moods' | 'pace'
 
 export const FIELDS: { id: FieldId; label: string; multi?: boolean }[] = [
   { id: 'ignore', label: 'Don’t import' },
@@ -95,6 +95,8 @@ export const FIELDS: { id: FieldId; label: string; multi?: boolean }[] = [
   { id: 'readCount', label: 'Times read' },
   { id: 'shelves', label: 'Shelves', multi: true },
   { id: 'tags', label: 'Tags', multi: true },
+  { id: 'moods', label: 'Moods', multi: true },
+  { id: 'pace', label: 'Pace' },
   { id: 'owned', label: 'Owned' },
   { id: 'favorite', label: 'Favourite' },
 ]
@@ -141,6 +143,8 @@ const SYNONYMS: Record<Exclude<FieldId, 'ignore'>, string[]> = {
   tags: ['tags', 'tag', 'labels', 'label', 'keywords'],
   owned: ['ownedcopies', 'owned', 'own', 'iown', 'owncopy', 'inlibrary', 'owned'],
   favorite: ['favorite', 'favourite', 'favorites', 'favourites', 'isfavorite'],
+  moods: ['moods', 'mood', 'vibes', 'feel'],
+  pace: ['pace', 'pacing', 'readingpace'],
 }
 
 const DATE_RE = /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|^\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}/
@@ -487,6 +491,8 @@ export function buildImport(
       id: uid(), workId: work.id, editionId: edition.id, status, rating, review,
       favorite: many(r, 'favorite').some(truthy), owned: many(r, 'owned').some(truthy),
       tags: [...new Set(many(r, 'tags').flatMap(splitList).map((t) => tidy(t, titleCase)))].slice(0, 50), shelfIds,
+      moods: [...new Set(many(r, 'moods').flatMap(splitList).map((m) => m.toLowerCase()).filter((m) => (MOODS as readonly string[]).includes(m)))],
+      pace: (['slow', 'medium', 'fast'] as const).find((p) => one(r, 'pace').toLowerCase().startsWith(p)),
       addedAt: addedOn && addedOn.length === 10 ? addedOn + 'T12:00:00Z' : nowIso(), updatedAt: nowIso(),
     }
     out.entries.push(entry)

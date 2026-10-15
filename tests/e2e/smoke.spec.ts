@@ -110,3 +110,45 @@ test('every screen fits the window', async ({ page }) => {
     expect(overflow, `${route} scrolls sideways`).toBeLessThanOrEqual(1)
   }
 })
+
+test('smart shelves, series, moods and export', async ({ page }) => {
+  const errors = watchErrors(page)
+  await startOnDevice(page)
+  await page.goto('/#/settings')
+  await page.getByRole('button', { name: /sample library/ }).click()
+
+  // Smart shelves fill themselves
+  await openLibrary(page)
+  const smart = page.locator('.pile.smart')
+  expect(await smart.count()).toBeGreaterThan(2)
+  await smart.first().click()
+  await expect(page.locator('.smart-desc')).toBeVisible()
+  expect(await page.locator('.tile').count()).toBeGreaterThan(0)
+
+  // Book → series page
+  await openLibrary(page)
+  await page.getByPlaceholder(/Search/).fill('Dune Messiah')
+  await page.locator('.tile-link', { hasText: 'Dune Messiah' }).click()
+  await page.locator('.series-eyebrow').click()
+  await expect(page.locator('h1.display')).toHaveText('Dune')
+  await expect(page.locator('.series-item')).toHaveCount(2)
+  await page.locator('.series-link', { hasText: 'Dune Messiah' }).click()
+
+  // Moods and pace stick
+  await page.getByRole('button', { name: 'Hopeful' }).click()
+  await expect(page.getByRole('button', { name: 'Hopeful' })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('radio', { name: 'Fast' }).click()
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Hopeful' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('radio', { name: 'Fast' })).toBeChecked()
+
+  // Export
+  await page.goto('/#/settings')
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: /Goodreads \/ StoryGraph CSV/ }).click(),
+  ])
+  expect(download.suggestedFilename()).toMatch(/\.csv$/)
+
+  expect(errors).toEqual([])
+})
