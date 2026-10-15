@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy · Folio</title>
+  <meta name="description" content="What Folio stores about you, where it lives and how to remove it." />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400&family=Geist:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg: #f5f0e8; --surface: #fbf8f2; --ink: #1d1a16; --ink-2: #4a443c; --muted: #7a7266; --line: #e3dccf; --accent: #c4572e; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #141210; --surface: #1c1916; --ink: #f2ece2; --ink-2: #cfc6b8; --muted: #9a9184; --line: #2e2a25; --accent: #e07a4e; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink-2); font: 16px/1.65 Geist, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    main { max-width: 680px; margin: 0 auto; padding: 56px 20px 80px; }
+    .brand { display: inline-flex; align-items: center; gap: 8px; font: italic 500 1.4rem Fraunces, Georgia, serif; color: var(--ink); text-decoration: none; }
+    .brand svg { color: var(--accent); }
+    h1 { font: 400 clamp(2.2rem, 6vw, 3.2rem)/1.05 Fraunces, Georgia, serif; color: var(--ink); margin: 40px 0 8px; letter-spacing: -0.02em; }
+    h1 em { color: var(--accent); }
+    h2 { font: 500 1.25rem Fraunces, Georgia, serif; color: var(--ink); margin: 40px 0 8px; }
+    .updated { color: var(--muted); font-size: 0.9rem; margin: 0 0 28px; }
+    .lede { font-size: 1.1rem; color: var(--ink); }
+    ul { padding-left: 1.2em; }
+    li { margin: 6px 0; }
+    strong { color: var(--ink); font-weight: 500; }
+    a { color: var(--accent); text-underline-offset: 3px; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 4px 22px; margin: 24px 0; }
+    .card h2 { margin-top: 18px; }
+    footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <a class="brand" href="./">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      Folio
+    </a>
+    <h1>Your reading is <em>yours.</em></h1>
+    <p class="updated">Privacy policy · last updated 15 October 2026</p>
+
+    <p class="lede">Folio is a small, independent reading tracker. It has no ads, no analytics and no tracking, and it never sells or shares your data.</p>
+
+    <div class="card">
+      <h2>In short</h2>
+      <ul>
+        <li>We keep only what you put into Folio, plus your name and email from Google sign-in.</li>
+        <li>Your reading history, ratings, notes and shelves are private to you.</li>
+        <li>Books and editions you add to the shared catalogue are visible to everyone who uses Folio.</li>
+        <li>You can download everything, or delete it, from Settings at any time.</li>
+      </ul>
+    </div>
+
+    <h2>What we collect</h2>
+    <ul>
+      <li><strong>From Google sign-in:</strong> your email address, name and profile picture link. We use them only to sign you in and to show who you are signed in as. We never get your Google password, and we don't ask for access to your Gmail, Drive, contacts or anything else.</li>
+      <li><strong>What you add:</strong> the books on your piles and shelves, your reads and dates, progress, ratings, notes, tags, moods and pace, and your settings (such as your yearly goal).</li>
+      <li><strong>Catalogue contributions:</strong> books, editions and cover photos you add to the shared catalogue, with a record of who made each change so mistakes can be traced and undone.</li>
+    </ul>
+    <p>If you use Folio without an account, nothing leaves your browser: everything is stored on your device only.</p>
+
+    <h2>Who can see it</h2>
+    <ul>
+      <li><strong>Your reading data</strong> (piles, reads, ratings, notes, moods, shelves, settings) can be read only by you. The database enforces this per account.</li>
+      <li><strong>The shared catalogue</strong> (book titles, authors, editions, ISBNs, covers) is visible to all Folio users, so that everyone's copies of the same book line up. Your name is not shown next to what you added.</li>
+      <li><strong>The site administrator</strong> can see the catalogue change history, including which account made each change, to keep the catalogue tidy.</li>
+    </ul>
+
+    <h2>Where it's stored</h2>
+    <ul>
+      <li>Account and library data is stored with <a href="https://supabase.com/privacy" rel="noopener">Supabase</a>, our database host. Uploaded cover photos are stored there too, and are publicly viewable by their link.</li>
+      <li>To work offline, Folio keeps a copy of your library in your browser's storage. Signing out removes that copy (any changes that haven't synced yet are kept until they can be sent).</li>
+      <li>The website itself is served by <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" rel="noopener">GitHub Pages</a>, and its fonts by Google Fonts. Like any website host, they see your IP address when your browser fetches the page.</li>
+    </ul>
+
+    <h2>Book searches</h2>
+    <p>When you search for a book or scan an ISBN, your browser sends the search text directly to <a href="https://policies.google.com/privacy" rel="noopener">Google Books</a> and <a href="https://archive.org/about/terms.php" rel="noopener">Open Library</a> to find matches. Nothing else from your library is sent. Photos you take of covers are processed on your device; only the final cover image is uploaded, and only if you save it.</p>
+
+    <h2>Cookies</h2>
+    <p>Folio uses no advertising or tracking cookies. It stores a sign-in token in your browser so you stay signed in, and a few preferences such as your theme.</p>
+
+    <h2>Your choices</h2>
+    <ul>
+      <li><strong>Download:</strong> Settings → Download backup, or export a spreadsheet, at any time.</li>
+      <li><strong>Delete your library:</strong> Settings → Delete my library permanently removes your piles, reads, ratings, notes and shelves.</li>
+      <li><strong>Delete your account:</strong> ask through the contact link below and your account and sign-in details will be removed. Books you added to the shared catalogue stay, without your name attached, so other people's libraries don't break.</li>
+      <li><strong>Revoke Google access:</strong> you can remove Folio at any time from your <a href="https://myaccount.google.com/connections" rel="noopener">Google account connections</a>.</li>
+    </ul>
+
+    <h2>Children</h2>
+    <p>Folio isn't directed at children under 13 and doesn't knowingly collect their data.</p>
+
+    <h2>Changes</h2>
+    <p>If this policy changes, the date at the top will change with it. Significant changes will be mentioned in the app.</p>
+
+    <h2>Contact</h2>
+    <p>Questions or deletion requests: <a href="https://github.com/visham108/folio/issues" rel="noopener">open a request on GitHub</a>.</p>
+
+    <footer><a href="./">Back to Folio</a></footer>
+  </main>
+</body>
+</html>

@@ -3,7 +3,7 @@ import type { Backend } from '../lib/backend'
 import { createLocalBackend } from '../lib/localBackend'
 import { sampleLibrary } from '../lib/sample'
 import { mergeLibrary } from '../lib/merge'
-import { cacheSnapshot, withOffline, type OfflineBackend } from '../lib/offline'
+import { cacheSnapshot, forgetSnapshot, withOffline, type OfflineBackend } from '../lib/offline'
 import { cloudConfigured, createCloudBackend, supabase } from '../lib/supabaseBackend'
 import {
   emptySnapshot, mediumOf, type Edition, type Entry, type LogPoint, type Read, type Settings, type Shelf,
@@ -242,9 +242,12 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
       boot()
     },
     async signOut() {
+      const who = be.current?.kind === 'cloud' ? be.current.userId : undefined
       setMode(null)
       await be.current?.signOut?.()
       await boot()
+      // Don't leave a readable copy of the library behind on a shared computer.
+      if (who) await forgetSnapshot(who)
     },
 
     addBook(b) {

@@ -38,6 +38,16 @@ async function set(key: string, value: unknown): Promise<void> {
 }
 
 export const cacheSnapshot = (userId: string, snap: Snapshot) => set(`snapshot:${userId}`, snap).catch(() => {})
+/** Removes this device's copy of a library (on sign-out). Unsent changes in the outbox are kept. */
+export async function forgetSnapshot(userId: string): Promise<void> {
+  const db = await open().catch(() => null)
+  if (!db) return
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction(STORE, 'readwrite')
+    tx.objectStore(STORE).delete(`snapshot:${userId}`)
+    tx.oncomplete = tx.onerror = () => resolve()
+  })
+}
 export const readSnapshot = (userId: string) => get<Snapshot>(`snapshot:${userId}`).catch(() => undefined)
 
 export function isNetworkError(e: unknown): boolean {

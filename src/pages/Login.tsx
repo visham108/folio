@@ -67,6 +67,7 @@ export function Login() {
           {cloudConfigured
             ? 'Signing in syncs your library across devices and keeps you signed in. Without an account, everything stays in this browser.'
             : 'Your library is saved in this browser. Connect a Supabase project to enable Google sign-in and sync.'}
+          {' '}<a className="link" href="./privacy.html">Privacy</a>
         </p>
       </motion.div>
     </div>
