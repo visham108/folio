@@ -46,7 +46,10 @@ const subtitleOf = (t: string): string => {
   return parts.length > 1 ? fold(parts.slice(1).join(' ')).replace(/^or\s+/, '') : ''
 }
 
-const WORD_NUMS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 }
+const WORD_NUMS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+  first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10, eleventh: 11, twelfth: 12,
+}
 const ROMAN_TOKEN = /^(?=[ivx]+$)x{0,3}(ix|iv|v?i{0,3})$/
 const roman = (r: string) => {
   const v: Record<string, number> = { i: 1, v: 5, x: 10 }
@@ -56,16 +59,19 @@ const roman = (r: string) => {
 }
 
 /**
- * Volume numbers in a title: digits anywhere ("Saga, Vol. 01" → 1), Roman numerals
- * ("Book II"), and number words after vol/book/part ("Book Two"). Lone "i", "v" and
- * "x" only count after such a word, so "I, Robot" has none.
+ * Volume numbers in a title: digits anywhere ("Saga, Vol. 01" → 1, "10th Canto" → 10), Roman
+ * numerals ("Book II"), and number words next to vol/book/part/canto… ("Book Two", "Fifth
+ * Canto"). Lone "i", "v" and "x" only count beside such a word, so "I, Robot" has none.
  */
+const MARKER = /^(vol|volume|book|part|tome|no|number|episode|chapter|canto|season|series|edition)$/
 export function titleNumbers(t: string): string {
   const words = fold(t.replace(BRACKETS, ' ')).split(' ')
   const out: number[] = []
   words.forEach((w, i) => {
-    const marker = /^(vol|volume|book|part|tome|no|number|episode|chapter)$/.test(words[i - 1] ?? '')
+    const marker = MARKER.test(words[i - 1] ?? '') || MARKER.test(words[i + 1] ?? '')
+    const ordinal = w.match(/^(\d+)(st|nd|rd|th)$/)
     if (/^\d+$/.test(w)) out.push(+w)
+    else if (ordinal) out.push(+ordinal[1])
     else if (ROMAN_TOKEN.test(w) && (w.length > 1 || marker)) out.push(roman(w))
     else if (marker && w in WORD_NUMS) out.push(WORD_NUMS[w])
   })

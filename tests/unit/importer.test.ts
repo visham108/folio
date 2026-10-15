@@ -204,3 +204,14 @@ describe('Folio’s full CSV headers', () => {
     expect(plan.data.reads.filter((r) => r.entryId === plan.data.entries[1].id)).toHaveLength(0)
   })
 })
+
+describe('ASINs in the ISBN column', () => {
+  it('keeps a Kindle ASIN from StoryGraph’s ISBN/UID column', () => {
+    const csv = 'Title,Authors,ISBN/UID,Format,Read Status\nThe Silmarillion,J.R.R. Tolkien,B007978PGI,digital,read\n'
+    const { headers, rows } = parseTable(csv)
+    const cols = guessColumns(headers, rows)
+    const res = buildImport(rows, cols, guessValues(rows, cols), { works: [], editions: [], entries: [], shelves: [] })
+    expect(res.data.editions[0]).toMatchObject({ asin: 'B007978PGI', format: 'ebook' })
+    expect(res.data.editions[0].isbn13).toBeUndefined()
+  })
+})

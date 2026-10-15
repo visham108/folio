@@ -434,7 +434,9 @@ export function buildImport(
     const rawIsbn = isbns.find(Boolean)
     const isbn13 = rawIsbn?.length === 13 ? rawIsbn : rawIsbn ? isbn10to13(rawIsbn) : undefined
     const isbn10 = [isbns[1], isbns[2], isbns[0]].find((i) => i?.length === 10)
-    const asin = one(r, 'asin').toUpperCase() || undefined
+    // StoryGraph (and others) put Kindle ASINs in the ISBN column: keep them as ASINs.
+    const asinInIsbn = [one(r, 'isbn'), one(r, 'isbn13'), one(r, 'isbn10')].map((v) => v.replace(/^="?|"$/g, '').trim().toUpperCase()).find((v) => /^B0[0-9A-Z]{8}$/.test(v))
+    const asin = one(r, 'asin').toUpperCase() || asinInIsbn || undefined
     const fmtRaw = one(r, 'format')
     const format: Format = (fmtRaw && values.format[fmtRaw]) || (asin && !isbn13 ? 'ebook' : 'paperback')
     const durRaw = one(r, 'duration')

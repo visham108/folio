@@ -99,3 +99,14 @@ describe('findCandidates with subtitles and other scripts', () => {
     expect(findCandidates({ title: 'ノルウェイの森', authors: ['村上春樹'] }, jp, [])).toHaveLength(0)
   })
 })
+
+describe('numbered volumes written as words', () => {
+  it('keeps different cantos and volumes apart', () => {
+    expect(titleSimilarity('Srimad-Bhagavatam, Fifth Canto', 'Srimad-Bhagavatam, Third Canto')).toBeLessThan(0.9)
+    expect(titleSimilarity('Sri Brhad-bhagavatamrta: Volume One', 'Sri Brhad-bhagavatamrta: Volume Two')).toBeLessThan(0.9)
+    expect(titleSimilarity('Harry Potter Book Seven', 'Harry Potter Book Six')).toBeLessThan(0.9)
+  })
+  it('still treats the same volume as the same', () => {
+    expect(titleSimilarity('Srimad-Bhagavatam, Fifth Canto', 'Srimad Bhagavatam, Fifth Canto')).toBeGreaterThan(0.95)
+  })
+})
