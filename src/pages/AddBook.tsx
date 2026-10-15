@@ -215,10 +215,21 @@ function FormStep({ work, setWork, edition, setEdition, onBack }: {
 
   // Shared catalogue lookups for duplicate detection (debounced).
   useEffect(() => {
-    if (!store.backend || work.title.trim().length < 2) return
-    const t = setTimeout(() => store.backend!.searchCatalog(work.title, work.authors).then(setRemote).catch(() => {}), 400)
+    const isbn = edition.isbn13 ?? edition.isbn10
+    if (!store.backend || (work.title.trim().length < 2 && !isbn)) return
+    const t = setTimeout(async () => {
+      const be = store.backend!
+      // Similar titles, plus anything carrying the same ISBN (an exact edition match).
+      const [similar, exact] = await Promise.all([
+        work.title.trim().length >= 2 ? be.searchCatalog(work.title, work.authors).catch(() => null) : null,
+        be.catalogueFor({ isbns: isbn ? [isbn] : [], titles: work.title ? [work.title] : [] }).catch(() => null),
+      ])
+      const works = new Map([...(similar?.works ?? []), ...(exact?.works ?? [])].map((w) => [w.id, w]))
+      const eds = new Map([...(similar?.editions ?? []), ...(exact?.editions ?? [])].map((e) => [e.id, e]))
+      setRemote({ works: [...works.values()], editions: [...eds.values()] })
+    }, 400)
     return () => clearTimeout(t)
-  }, [work.title, work.authors.join('|')]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [work.title, work.authors.join('|'), edition.isbn13, edition.isbn10]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const candidates = useMemo(() => {
     const works = [...store.data.works, ...remote.works.filter((w) => !store.works.has(w.id))]
@@ -281,7 +292,12 @@ function FormStep({ work, setWork, edition, setEdition, onBack }: {
                 <button className="btn btn-primary sm" onClick={() => doAttach(top)}>
                   {top.sameEdition ? 'Use this edition' : 'Add as another edition'}
                 </button>
-                <button className="btn btn-ghost sm" onClick={() => setDismissed(new Set([...dismissed, top.work.id]))}>It’s a different book</button>
+                {top.sameEdition ? (
+                  // An ISBN identifies one edition, so the only alternative is that the ISBN was mistyped.
+                  <button className="btn btn-ghost sm" onClick={() => setEdition({ ...edition, isbn13: undefined, isbn10: undefined })}>The ISBN is wrong, clear it</button>
+                ) : (
+                  <button className="btn btn-ghost sm" onClick={() => setDismissed(new Set([...dismissed, top.work.id]))}>It’s a different book</button>
+                )}
               </div>
             </div>
           </motion.div>

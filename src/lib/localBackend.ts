@@ -126,6 +126,12 @@ export function createLocalBackend(): Backend {
         for (const item of part[key] ?? []) await upsert(key, item as never)
       }
     },
+    async catalogueFor() {
+      return { works: [], editions: [] }
+    },
+    async fetchWork() {
+      return null
+    },
     async searchCatalog() {
       // On-device there is no shared catalogue beyond the user's own books,
       // which the UI already matches against.

@@ -54,6 +54,26 @@ With no Supabase configured, the app runs in **on-device mode**: everything is s
 
 Sessions persist, so you stay signed in until you sign out.
 
+## Tests
+
+```bash
+npm test          # unit tests: title case, matching, importer, merging, stats
+npm run test:e2e  # browser smoke test (desktop + phone) against the production build
+```
+
+Both run automatically on every push (`.github/workflows/ci.yml`).
+
+## Keeping it running
+
+- **Database keep-alive:** Supabase pauses free projects after a week without activity.
+  `.github/workflows/keepalive.yml` pings the database once a day. If it ever fails, GitHub emails you.
+  GitHub suspends scheduled jobs in repositories with no commits for 60 days; re-enable it from the
+  Actions tab if that happens.
+- **Backups:** the free tier has no automatic backups. Folio reminds you monthly to download a backup
+  (Settings → Download backup), and restoring merges into your library without creating duplicates.
+- **Google Books searches:** optional `VITE_GOOGLE_BOOKS_KEY` in `.env.production` lifts the anonymous
+  rate limit (restrict the key to your site's address in Google Cloud Console).
+
 ## Deploying to GitHub Pages
 
 1. Push this repository to GitHub.

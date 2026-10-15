@@ -1,10 +1,10 @@
 import { AlertTriangle, ArrowRight, Check, FileUp, Loader2 } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  buildImport, detectSource, FIELDS, guessColumns, guessValues, parseTable,
+  buildImport, collectKeys, detectSource, FIELDS, guessColumns, guessValues, parseTable,
   type ColumnGuess, type FieldId, type ValueMaps,
 } from '../lib/importer'
-import { FORMATS, STATUSES, type Format, type Status } from '../lib/types'
+import { FORMATS, STATUSES, type Format, type Snapshot, type Status } from '../lib/types'
 import { fmtDate, plural } from '../lib/util'
 import { useStore } from '../state/store'
 import { useToast } from '../state/toast'
@@ -31,6 +31,8 @@ export function ImportSheet({ open, onClose }: { open: boolean; onClose: () => v
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [drag, setDrag] = useState(false)
+  // Books other readers already added: matched instead of duplicated.
+  const [catalogue, setCatalogue] = useState<Pick<Snapshot, 'works' | 'editions'> | null>(null)
 
   const reset = () => { setFile(null); setCols([]); setValues(null); setError(null) }
   const close = () => { reset(); onClose() }
@@ -63,11 +65,34 @@ export function ImportSheet({ open, onClose }: { open: boolean; onClose: () => v
     }
   }
 
+  // Look up the shared catalogue for every title and ISBN in the file (again if the mapping changes).
+  const keyCols = cols.filter((c) => ['title', 'isbn', 'isbn13', 'isbn10'].includes(c.field)).map((c) => `${c.index}:${c.field}`).join(',')
+  useEffect(() => {
+    if (!file || !store.backend || store.backend.kind === 'local') { setCatalogue({ works: [], editions: [] }); return }
+    let live = true
+    setCatalogue(null)
+    store.backend.catalogueFor(collectKeys(file.rows, cols))
+      .then((c) => live && setCatalogue(c))
+      .catch(() => live && setCatalogue({ works: [], editions: [] }))
+    return () => { live = false }
+  }, [file, keyCols]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const existing = useMemo(() => {
+    if (!catalogue) return store.data
+    const haveW = new Set(store.data.works.map((w) => w.id))
+    const haveE = new Set(store.data.editions.map((e) => e.id))
+    return {
+      ...store.data,
+      works: [...store.data.works, ...catalogue.works.filter((w) => !haveW.has(w.id))],
+      editions: [...store.data.editions, ...catalogue.editions.filter((e) => !haveE.has(e.id))],
+    }
+  }, [store.data, catalogue])
+
   // The live preview reads a sample; the full file is processed on import.
   const SAMPLE = 150
   const plan = useMemo(
-    () => (file && values ? buildImport(file.rows, cols, values, store.data, { limit: SAMPLE }) : null),
-    [file, cols, values, store.data],
+    () => (file && values ? buildImport(file.rows, cols, values, existing, { limit: SAMPLE }) : null),
+    [file, cols, values, existing],
   )
   const sampled = (file?.rows.length ?? 0) > SAMPLE
   const hasTitle = cols.some((c) => c.field === 'title')
@@ -77,7 +102,7 @@ export function ImportSheet({ open, onClose }: { open: boolean; onClose: () => v
     setBusy(true)
     await new Promise((r) => setTimeout(r, 30)) // let the spinner paint
     try {
-      const full = buildImport(file.rows, cols, values, store.data)
+      const full = buildImport(file.rows, cols, values, existing)
       await store.importData(full.data)
       toast(`Imported ${plural(full.data.entries.length, 'book')} from ${file.source}${full.skipped ? ` (${full.skipped} were already on your shelves)` : ''}`)
       close()
@@ -92,9 +117,9 @@ export function ImportSheet({ open, onClose }: { open: boolean; onClose: () => v
     <Sheet open={open} onClose={close} title={file ? `Import from ${file.source}` : 'Import your books'} wide footer={file && (
       <>
         <button className="btn btn-ghost" onClick={reset}>Choose another file</button>
-        <button className="btn btn-primary" disabled={!hasTitle || !plan?.data.entries.length || busy} onClick={run}>
+        <button className="btn btn-primary" disabled={!hasTitle || !plan?.data.entries.length || busy || !catalogue} onClick={run}>
           {busy ? <Loader2 size={16} className="spin" /> : <Check size={16} />}
-          {busy ? 'Importing…' : plan ? `Import ${sampled ? plural(file.rows.length, 'row') : plural(plan.data.entries.length, 'book')}` : 'Import'}
+          {busy ? 'Importing…' : !catalogue ? 'Checking the catalogue…' : plan ? `Import ${sampled ? plural(file.rows.length, 'row') : plural(plan.data.entries.length, 'book')}` : 'Import'}
         </button>
       </>
     )}>

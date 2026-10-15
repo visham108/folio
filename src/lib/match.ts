@@ -85,7 +85,14 @@ export function titleSimilarity(a: string, b: string): number {
   if (ca && ca === cb) return 1
   const fa = fullTitle(a)
   const fb = fullTitle(b)
-  return Math.max(jaroWinkler(ca, cb) * 0.95, tokenSet(fa, fb), jaroWinkler(fa, fb) * 0.9)
+  const best = Math.max(jaroWinkler(ca, cb) * 0.95, tokenSet(fa, fb), jaroWinkler(fa, fb) * 0.9)
+  // One title is the other plus whole extra words ("Dune" / "Dune Messiah"): usually a
+  // sequel or companion rather than a spelling variant, so never more than a "possible" match.
+  const ta = new Set(ca.split(' ').filter(Boolean))
+  const tb = new Set(cb.split(' ').filter(Boolean))
+  const within = (x: Set<string>, y: Set<string>) => [...x].every((w) => y.has(w))
+  if (ta.size !== tb.size && (within(ta, tb) || within(tb, ta))) return Math.min(best, 0.8)
+  return best
 }
 
 function nameParts(name: string) {

@@ -21,6 +21,9 @@ export function Shell() {
   const yp = useYearProgress()
   return (
     <div className="shell">
+      <a className="skip-link" href="#main-content" onClick={(e) => { e.preventDefault(); document.getElementById('main-content')?.focus() }}>
+        Skip to content
+      </a>
       <aside className="sidebar">
         <button className="brand" onClick={() => nav('/')}>
           <BookOpen size={20} strokeWidth={2} /> <span>Folio</span>
@@ -45,7 +48,7 @@ export function Shell() {
         <div className="side-foot muted small">{backend?.kind === 'cloud' ? backend.userLabel : 'Saved on this device'}</div>
       </aside>
 
-      <main className="main">
+      <main className="main" id="main-content" tabIndex={-1}>
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={loc.pathname}

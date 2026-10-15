@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { Backend } from '../lib/backend'
 import { createLocalBackend } from '../lib/localBackend'
 import { sampleLibrary } from '../lib/sample'
+import { mergeLibrary } from '../lib/merge'
 import { cloudConfigured, createCloudBackend, supabase } from '../lib/supabaseBackend'
 import {
   emptySnapshot, mediumOf, type Edition, type Entry, type LogPoint, type Read, type Settings, type Shelf,
@@ -10,6 +11,7 @@ import {
 import { nowIso, today, uid } from '../lib/util'
 
 const MODE_KEY = 'folio.mode'
+const DEVICE_DISMISSED_KEY = 'folio.deviceBooksDismissed'
 /** Preview builds (VITE_DEMO=1) skip sign-in and open on the sample library. */
 export const DEMO = import.meta.env.VITE_DEMO === '1'
 
@@ -66,6 +68,14 @@ interface Store {
   deleteShelf(id: string): void
   saveSettings(s: Partial<Settings>): void
   importData(part: Partial<Snapshot>): Promise<void>
+  /** Fold a whole library (an export, or books saved on this device) in without duplicates. */
+  mergeIn(src: Pick<Snapshot, 'works' | 'editions' | 'entries' | 'reads' | 'logs' | 'shelves'>): Promise<{ books: number; matched: number }>
+  /** Books saved on this device before signing in (cloud only). */
+  deviceBooks: number
+  moveDeviceBooks(): Promise<number>
+  dismissDeviceBooks(discard: boolean): Promise<void>
+  /** Bring a catalogue book that isn't on your shelves into view (shared links). */
+  loadWork(id: string): Promise<boolean>
   wipe(): Promise<void>
   /** Latest read, preferring one in progress. */
   activeRead(entryId: string): Read | undefined
@@ -88,6 +98,7 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
   const [backend, setBackend] = useState<Backend | null>(null)
   const [ready, setReady] = useState(false)
   const [data, setData] = useState<Snapshot>(emptySnapshot)
+  const [deviceBooks, setDeviceBooks] = useState(0)
   const be = useRef<Backend | null>(null)
   be.current = backend
   // Keep the latest callback without making boot() depend on it.
@@ -106,6 +117,14 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
           snap = await b.loadAll()
         }
         setData(snap)
+        // Books added before signing in are still in this browser: offer to move them.
+        if (b.kind === 'cloud' && !DEMO) {
+          const local = await createLocalBackend().loadAll().catch(() => null)
+          let dismissed = 0
+          try { dismissed = Number(localStorage.getItem(DEVICE_DISMISSED_KEY) ?? 0) } catch { /* storage blocked */ }
+          const n = local?.entries.length ?? 0
+          setDeviceBooks(n > 0 && n !== dismissed ? n : 0)
+        }
       } catch (e) {
         errRef.current('Could not load your library. ' + (e as Error).message)
       }
@@ -387,6 +406,46 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
       if (!b) return
       await b.wipe()
       setData(await b.loadAll())
+    },
+    async mergeIn(src) {
+      const b = be.current
+      if (!b) return { books: 0, matched: 0 }
+      // Include matching books from the shared catalogue, not just your own shelves.
+      const catalogue = await b.catalogueFor({
+        isbns: src.editions.flatMap((e) => [e.isbn13, e.isbn10]).filter((x): x is string => !!x),
+        titles: src.works.map((w) => w.title),
+      }).catch(() => ({ works: [], editions: [] }))
+      const into = {
+        works: [...data.works, ...catalogue.works.filter((w) => !works.has(w.id))],
+        editions: [...data.editions, ...catalogue.editions.filter((e) => !editions.has(e.id))],
+        entries: data.entries,
+        shelves: data.shelves,
+      }
+      const res = mergeLibrary(src, into)
+      await b.saveMany(res.data)
+      setData(await b.loadAll())
+      return { books: res.books, matched: res.matched }
+    },
+    deviceBooks,
+    async moveDeviceBooks() {
+      const local = createLocalBackend()
+      const snap = await local.loadAll()
+      const res = await store.mergeIn(snap)
+      await local.wipe()
+      setDeviceBooks(0)
+      return res.books
+    },
+    async dismissDeviceBooks(discard) {
+      if (discard) await createLocalBackend().wipe()
+      else try { localStorage.setItem(DEVICE_DISMISSED_KEY, String(deviceBooks)) } catch { /* storage blocked */ }
+      setDeviceBooks(0)
+    },
+    async loadWork(id) {
+      if (works.has(id)) return true
+      const found = await be.current?.fetchWork(id).catch(() => null)
+      if (!found) return false
+      store.remember([found.work], found.editions)
+      return true
     },
   }
 

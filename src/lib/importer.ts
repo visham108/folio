@@ -515,3 +515,23 @@ export function buildImport(
   })
   return { data: out, added, matched, skipped, problems, preview }
 }
+
+/** Titles and ISBNs in the file, for looking up the shared catalogue before building. */
+export function collectKeys(rows: string[][], cols: ColumnGuess[]): { titles: string[]; isbns: string[] } {
+  const idx = (f: FieldId) => cols.filter((c) => c.field === f).map((c) => c.index)
+  const titleCols = idx('title')
+  const isbnCols = [...idx('isbn'), ...idx('isbn13'), ...idx('isbn10')]
+  const titles = new Set<string>()
+  const isbns = new Set<string>()
+  for (const r of rows) {
+    for (const i of titleCols) {
+      const t = (r[i] ?? '').replace(/\s*\([^()]*#[^()]*\)\s*$/, '').trim()
+      if (t) titles.add(t)
+    }
+    for (const i of isbnCols) {
+      const c = cleanIsbn(r[i] ?? '')
+      if (c) { isbns.add(c); if (c.length === 10) isbns.add(isbn10to13(c)) }
+    }
+  }
+  return { titles: [...titles], isbns: [...isbns] }
+}

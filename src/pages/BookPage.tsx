@@ -46,10 +46,19 @@ export function BookPage() {
   const reviewTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   useEffect(() => setReview(entry?.review ?? ''), [entry?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // A book from a shared link may not be on your shelves yet: fetch it from the catalogue.
+  const [lookup, setLookup] = useState<'idle' | 'loading' | 'missing'>('idle')
+  useEffect(() => {
+    if (work || !workId) return
+    setLookup('loading')
+    store.loadWork(workId).then((ok) => setLookup(ok ? 'idle' : 'missing'))
+  }, [workId, !!work]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const fallbackAmb = useMemo(() => (work ? coverPalette(work.title + (work.authors[0] ?? ''))[0] : '#888'), [work])
 
   if (!work) {
-    return <div className="page"><Empty title="Book not found"><p><Link className="link" to="/library">Back to your library</Link></p></Empty></div>
+    if (lookup !== 'missing') return <div className="page page-loading" aria-busy="true" />
+    return <div className="page"><Empty title="Book not found"><p>It may have been merged into another book or removed. <Link className="link" to="/library">Back to your library</Link></p></Empty></div>
   }
 
   const status = entry?.status

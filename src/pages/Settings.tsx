@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react'
 import { ConfirmSheet, Field, Segmented } from '../components/ui'
 import { ImportSheet } from '../components/ImportSheet'
 import { sampleLibrary } from '../lib/sample'
+import { downloadBackup, lastBackup } from '../lib/backup'
+import { fmtDate } from '../lib/util'
 import type { Settings, Snapshot } from '../lib/types'
 import { useStore } from '../state/store'
 import { useToast } from '../state/toast'
@@ -17,6 +19,7 @@ export function SettingsPage() {
   const [busy, setBusy] = useState<string | null>(null)
   const [goal, setGoal] = useState(String(s.yearlyGoal))
   const [importOpen, setImportOpen] = useState(false)
+  const [last, setLast] = useState(lastBackup())
   const [confirmWipe, setConfirmWipe] = useState(false)
 
   useEffect(() => {
@@ -26,23 +29,19 @@ export function SettingsPage() {
     }
   }, [])
 
-  const exportJson = () => {
-    const blob = new Blob([JSON.stringify({ app: 'folio', version: 1, exportedAt: new Date().toISOString(), ...data }, null, 2)], { type: 'application/json' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `folio-library-${new Date().toISOString().slice(0, 10)}.json`
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000)
-  }
+  const exportJson = () => { downloadBackup(data); setLast(lastBackup()) }
 
   const importJson = async (file: File) => {
     setBusy('Restoring…')
     try {
       const parsed = JSON.parse(await file.text()) as Partial<Snapshot> & { app?: string }
       if (parsed.app !== 'folio') throw new Error('That file isn’t a Folio export.')
-      await store.importData({ works: parsed.works, editions: parsed.editions, entries: parsed.entries, reads: parsed.reads, logs: parsed.logs, shelves: parsed.shelves })
+      const res = await store.mergeIn({
+        works: parsed.works ?? [], editions: parsed.editions ?? [], entries: parsed.entries ?? [],
+        reads: parsed.reads ?? [], logs: parsed.logs ?? [], shelves: parsed.shelves ?? [],
+      })
       if (parsed.settings) store.saveSettings(parsed.settings)
-      toast('Library restored')
+      toast(`Restored ${res.books} books${res.matched ? ` (${res.matched} matched to books already in Folio)` : ''}`)
     } catch (e) {
       toast((e as Error).message, { tone: 'error' })
     } finally {
@@ -101,9 +100,9 @@ export function SettingsPage() {
 
       <section className="card form-card">
         <h3>Your data</h3>
-        <p className="muted">It’s yours. Export everything as JSON at any time, or restore from an export.</p>
+        <p className="muted">It’s yours. Download everything as a backup at any time, or restore from one. Restoring adds to your library and never duplicates books you already have.{last && <> Last backup: <b>{fmtDate(last.slice(0, 10))}</b>.</>}</p>
         <div className="btn-row">
-          <button className="btn btn-soft" onClick={exportJson}><Download size={16} /> Export JSON</button>
+          <button className="btn btn-soft" onClick={exportJson}><Download size={16} /> Download backup</button>
           <button className="btn btn-ghost" disabled={!!busy} onClick={() => jsonFile.current?.click()}><Upload size={16} /> {busy ?? 'Restore from export'}</button>
         </div>
         <input ref={jsonFile} type="file" accept="application/json,.json" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) importJson(f); e.target.value = '' }} />

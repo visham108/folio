@@ -1,0 +1,27 @@
+name: Keep database awake
+
+# Supabase pauses free projects after a week without activity. A tiny daily
+# read keeps Folio's database awake even when nobody has opened the app.
+# If the database is unreachable this job fails, and GitHub emails you.
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .env.production
+          sparse-checkout-cone-mode: false
+      - name: Ping Supabase
+        run: |
+          set -a; . ./.env.production; set +a
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$VITE_SUPABASE_URL/rest/v1/works?select=id&limit=1" -H "apikey: $VITE_SUPABASE_ANON_KEY")
+          echo "Supabase answered HTTP $code"
+          test "$code" = "200"

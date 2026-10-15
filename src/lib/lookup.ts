@@ -32,8 +32,12 @@ function tidyGenres(xs: string[] = []): string[] {
   return [...out].slice(0, 6)
 }
 
+// Optional: a Google Books API key lifts the shared anonymous rate limit.
+const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_BOOKS_KEY as string | undefined
+
 async function google(q: string, signal?: AbortSignal): Promise<LookupResult[]> {
-  const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=12&printType=books`, { signal })
+  const key = GOOGLE_KEY ? `&key=${encodeURIComponent(GOOGLE_KEY)}` : ''
+  const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=12&printType=books${key}`, { signal })
   if (!res.ok) return []
   const json = await res.json()
   return (json.items ?? []).map((it: any): LookupResult => {

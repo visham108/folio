@@ -6,11 +6,26 @@ import { Home } from './pages/Home'
 import { Library } from './pages/Library'
 import { Login } from './pages/Login'
 
-// Less-visited screens load on demand to keep the first load small.
-const AddBook = lazy(() => import('./pages/AddBook').then((m) => ({ default: m.AddBook })))
-const BookPage = lazy(() => import('./pages/BookPage').then((m) => ({ default: m.BookPage })))
-const Stats = lazy(() => import('./pages/Stats').then((m) => ({ default: m.Stats })))
-const SettingsPage = lazy(() => import('./pages/Settings').then((m) => ({ default: m.SettingsPage })))
+// Less-visited screens load on demand to keep the first load small, then
+// quietly pre-load once the app is idle so opening them later is instant.
+const loaders = {
+  add: () => import('./pages/AddBook'),
+  book: () => import('./pages/BookPage'),
+  stats: () => import('./pages/Stats'),
+  settings: () => import('./pages/Settings'),
+}
+const AddBook = lazy(() => loaders.add().then((m) => ({ default: m.AddBook })))
+const BookPage = lazy(() => loaders.book().then((m) => ({ default: m.BookPage })))
+const Stats = lazy(() => loaders.stats().then((m) => ({ default: m.Stats })))
+const SettingsPage = lazy(() => loaders.settings().then((m) => ({ default: m.SettingsPage })))
+
+function usePreloadScreens(enabled: boolean) {
+  useEffect(() => {
+    if (!enabled) return
+    const idle = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 1200))
+    idle(() => Object.values(loaders).forEach((load) => load().catch(() => {})))
+  }, [enabled])
+}
 import { StoreProvider, useStore } from './state/store'
 import { ToastProvider } from './state/toast'
 
@@ -46,6 +61,7 @@ function OfflineNotice() {
 function Routed() {
   const { ready, backend, data } = useStore()
   useDocumentTitle()
+  usePreloadScreens(ready && !!backend)
   const theme = data.settings.theme
   useEffect(() => {
     const root = document.documentElement

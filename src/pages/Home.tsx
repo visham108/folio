@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { BookTile } from '../components/BookTile'
 import { Cover } from '../components/Cover'
+import { Notices } from '../components/Notices'
 import { ProgressSheet } from '../components/ProgressSheet'
 import { Bar, Empty, Ring, Stars } from '../components/ui'
 import { progressInfo } from '../lib/progress'
@@ -44,6 +45,7 @@ export function Home() {
           <p className="eyebrow">{greeting()}{name ? `, ${name}` : ''}</p>
           <h1 className="display">Let’s start your <em>library.</em></h1>
         </header>
+        <Notices />
         <div className="onboard">
           <button className="onboard-card" onClick={() => nav('/add')}>
             <Plus size={22} /><b>Add a book</b><span>Search, scan a barcode, or snap the cover.</span>
@@ -64,6 +66,7 @@ export function Home() {
           {yp.done === 0 ? <>A fresh year of <em>reading.</em></> : <>{plural(yp.done, 'book')} into <em>{year}.</em></>}
         </h1>
       </header>
+      <Notices />
 
       <section className="hero-strip">
         <div className="goal-card card">

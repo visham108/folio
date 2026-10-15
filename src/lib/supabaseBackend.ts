@@ -168,13 +168,74 @@ export async function createCloudBackend(): Promise<Backend | null> {
         audio_pages_per_hour: s.audioPagesPerHour, theme: s.theme, updated_at: new Date().toISOString(),
       }]),
     async saveMany(part) {
+      let works = part.works ?? []
+      let editions = part.editions ?? []
+      let entries = part.entries ?? []
+      let reads = part.reads ?? []
+      const logs = part.logs ?? []
+
+      // Safety net: an ISBN that reached the shared catalogue since we last looked
+      // is reused rather than rejected as a duplicate.
+      const isbns = [...new Set(editions.map((e) => e.isbn13).filter((x): x is string => !!x))]
+      const taken = new Map<string, Row>()
+      for (const c of chunks(isbns)) for (const r of await all(sb.from('editions').select('id, work_id, isbn13').in('isbn13', c))) taken.set(r.isbn13, r)
+      const edMap = new Map<string, string>()
+      const workMap = new Map<string, string>()
+      editions = editions.filter((e) => {
+        const hit = e.isbn13 ? taken.get(e.isbn13) : undefined
+        if (!hit || hit.id === e.id) return true
+        edMap.set(e.id, hit.id)
+        if (hit.work_id !== e.workId) workMap.set(e.workId, hit.work_id)
+        return false
+      })
+      if (edMap.size) {
+        editions = editions.map((e) => ({ ...e, workId: workMap.get(e.workId) ?? e.workId }))
+        entries = entries.map((en) => ({ ...en, workId: workMap.get(en.workId) ?? en.workId, editionId: (en.editionId && edMap.get(en.editionId)) || en.editionId }))
+        reads = reads.map((r) => ({ ...r, editionId: (r.editionId && edMap.get(r.editionId)) || r.editionId }))
+        const used = new Set([...editions.map((e) => e.workId), ...entries.map((e) => e.workId)])
+        works = works.filter((w) => used.has(w.id))
+      }
+      // One shelf entry per book: fold anything that collides into the entry you already have.
+      const mine = new Map((await all(sb.from('entries').select('id, work_id'))).map((r) => [r.work_id as string, r.id as string]))
+      const entryMap = new Map<string, string>()
+      entries = entries.filter((en) => {
+        const have = mine.get(en.workId)
+        if (have && have !== en.id) { entryMap.set(en.id, have); return false }
+        return true
+      })
+      if (entryMap.size) reads = reads.map((r) => ({ ...r, entryId: entryMap.get(r.entryId) ?? r.entryId }))
+
       // Order matters for foreign keys.
-      for (const c of chunks(part.works ?? [], 300)) await upsert('works', c.map(workTo))
-      for (const c of chunks(part.editions ?? [], 300)) await upsert('editions', c.map(editionTo))
+      for (const c of chunks(works, 300)) await upsert('works', c.map(workTo))
+      for (const c of chunks(editions, 300)) await upsert('editions', c.map(editionTo))
       for (const c of chunks(part.shelves ?? [], 300)) await upsert('shelves', c.map(shelfTo))
-      for (const c of chunks(part.entries ?? [], 300)) await upsert('entries', c.map(entryTo))
-      for (const c of chunks(part.reads ?? [], 300)) await upsert('reads', c.map(readTo))
-      for (const c of chunks(part.logs ?? [], 500)) await upsert('logs', c.map(logTo))
+      for (const c of chunks(entries, 300)) await upsert('entries', c.map(entryTo))
+      for (const c of chunks(reads, 300)) await upsert('reads', c.map(readTo))
+      for (const c of chunks(logs, 500)) await upsert('logs', c.map(logTo))
+    },
+    async catalogueFor({ isbns, titles }) {
+      const workRows = new Map<string, Row>()
+      const edRows = new Map<string, Row>()
+      const clean = [...new Set(isbns.filter(Boolean))]
+      for (const c of chunks(clean)) {
+        for (const r of await all(sb.from('editions').select('*').or(`isbn13.in.(${c.join(',')}),isbn10.in.(${c.join(',')})`))) edRows.set(r.id, r)
+      }
+      const uniqTitles = [...new Set(titles.map((t) => t.trim()).filter(Boolean))]
+      for (const c of chunks(uniqTitles, 500)) {
+        const { data, error } = await sb.rpc('works_by_titles', { q_titles: c })
+        if (!error) for (const r of (data as Row[]) ?? []) workRows.set(r.id, r)
+      }
+      const needWorks = [...new Set([...edRows.values()].map((e) => e.work_id as string))].filter((id) => !workRows.has(id))
+      for (const c of chunks(needWorks)) for (const r of await all(sb.from('works').select('*').in('id', c))) workRows.set(r.id, r)
+      const needEds = [...workRows.keys()]
+      for (const c of chunks(needEds)) for (const r of await all(sb.from('editions').select('*').in('work_id', c))) edRows.set(r.id, r)
+      return { works: [...workRows.values()].map(workFrom), editions: [...edRows.values()].map(editionFrom) }
+    },
+    async fetchWork(id) {
+      const { data: w } = await sb.from('works').select('*').eq('id', id).maybeSingle()
+      if (!w) return null
+      const eds = await all(sb.from('editions').select('*').eq('work_id', id))
+      return { work: workFrom(w), editions: eds.map(editionFrom) }
     },
     async searchCatalog(title) {
       if (title.trim().length < 2) return { works: [], editions: [] }

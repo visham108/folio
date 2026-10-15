@@ -1,6 +1,6 @@
 import { Camera, Link2, X } from 'lucide-react'
 import { nameCase, titleCase } from '../lib/titleCase'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FORMATS, type Edition, type Format } from '../lib/types'
 import { cleanIsbn, fmtDuration, nowIso, parseDuration, uid } from '../lib/util'
 import { Cover } from './Cover'
@@ -22,6 +22,12 @@ export function EditionFields({ value, onChange, title, authors }: {
   const audio = value.format === 'audiobook'
   const [dur, setDur] = useState(value.durationMin ? fmtDuration(value.durationMin) : '')
   const [more, setMore] = useState(false)
+  const [isbnText, setIsbnText] = useState(value.isbn13 ?? value.isbn10 ?? '')
+  // Keep the box in step when the ISBN is cleared or filled from outside (e.g. "the ISBN is wrong").
+  useEffect(() => {
+    const stored = value.isbn13 ?? value.isbn10 ?? ''
+    if (stored ? cleanIsbn(isbnText) !== stored : cleanIsbn(isbnText)) setIsbnText(stored)
+  }, [value.isbn13, value.isbn10]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="edition-fields">
       <CoverPicker value={value} title={title} authors={authors} onChange={(coverUrl) => set({ coverUrl })} />
@@ -50,7 +56,8 @@ export function EditionFields({ value, onChange, title, authors }: {
             <Field label="Published"><input className="input" value={value.publishedDate ?? ''} placeholder="2019 or 2019-06-04" onChange={(e) => set({ publishedDate: e.target.value || undefined })} /></Field>
             <Field label="Language"><input className="input" value={value.language ?? ''} placeholder="en" onChange={(e) => set({ language: e.target.value || undefined })} /></Field>
             <Field label="ISBN" hint={value.isbn13 || value.isbn10 ? undefined : '10 or 13 digits'}>
-              <input className="input" inputMode="numeric" defaultValue={value.isbn13 ?? value.isbn10 ?? ''} onChange={(e) => {
+              <input className="input" inputMode="numeric" value={isbnText} onChange={(e) => {
+                setIsbnText(e.target.value)
                 const c = cleanIsbn(e.target.value)
                 set(c?.length === 13 ? { isbn13: c, isbn10: undefined } : c?.length === 10 ? { isbn10: c, isbn13: undefined } : { isbn10: undefined, isbn13: undefined })
               }} />
