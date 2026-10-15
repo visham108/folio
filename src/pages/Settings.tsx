@@ -69,7 +69,7 @@ export function SettingsPage() {
             e.target.value = nameCase(e.target.value)
             store.saveSettings({ displayName: e.target.value || undefined })
           }} placeholder="What should we call you?" /></Field>
-          <Field label={`Reading goal for ${thisYear}`} hint="Set goals for other years from Stats.">
+          <Field label={`Reading goal for ${thisYear}`} hint="Every year starts at 12. Set goals for other years from Stats.">
             <input className="input" inputMode="numeric" value={goal} placeholder="No goal" onChange={(e) => setGoal(e.target.value)} onBlur={() => {
               const n = parseInt(goal, 10)
               if (n > 0 && n < 1000) store.saveSettings(withGoal(s, thisYear, n))

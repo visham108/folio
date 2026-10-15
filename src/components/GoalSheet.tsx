@@ -31,7 +31,7 @@ export function GoalSheet({ year, open, onClose }: { year: number; open: boolean
           onChange={(e) => setText(e.target.value.replace(/\D/g, '').slice(0, 3))}
           onKeyDown={(e) => { if (e.key === 'Enter' && valid) save(n) }} />
       </label>
-      <p className="muted small">Each year keeps its own goal, so changing this one doesn’t affect the others.</p>
+      <p className="muted small">Every year starts at 12 books. Each year keeps its own goal, so changing this one doesn’t affect the others.</p>
     </Sheet>
   )
 }

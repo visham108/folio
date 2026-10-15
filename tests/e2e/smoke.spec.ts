@@ -266,7 +266,7 @@ test('bulk edit and per-year goals', async ({ page }) => {
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.locator('.stat-hero-goal .ring-num')).toContainText('/30')
   await page.goto(`/#/stats/${year}`)
-  await expect(page.locator('.stat-hero-goal .ring-num')).toContainText('/24')
+  await expect(page.locator('.stat-hero-goal .ring-num')).toContainText('/12')
 
   expect(errors).toEqual([])
 })

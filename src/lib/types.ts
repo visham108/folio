@@ -155,13 +155,16 @@ export interface Settings {
   theme: 'system' | 'light' | 'dark'
 }
 
-export const DEFAULT_SETTINGS: Settings = { yearlyGoal: 24, audioPagesPerHour: 30, theme: 'system' }
+/** Every year's goal until you set your own. */
+export const DEFAULT_GOAL = 12
 
-/** The reading goal for a year: what you set for it, or (for this year only) your standing goal. */
+export const DEFAULT_SETTINGS: Settings = { yearlyGoal: DEFAULT_GOAL, audioPagesPerHour: 30, theme: 'system' }
+
+/** The reading goal for a year: what you set for it, otherwise 12. A goal you removed (0) means none. */
 export function goalFor(s: Settings, year: number): number | undefined {
   const set = s.goals?.[String(year)]
   if (set != null) return set > 0 ? set : undefined
-  return year === new Date().getFullYear() && s.yearlyGoal > 0 ? s.yearlyGoal : undefined
+  return DEFAULT_GOAL
 }
 
 /** Settings change that sets (or with 0, removes) the goal for a year. */
