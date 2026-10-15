@@ -23,6 +23,27 @@ function setMode(v: string | null) {
   try { if (v) localStorage.setItem(MODE_KEY, v); else localStorage.removeItem(MODE_KEY) } catch { /* storage blocked */ }
 }
 
+/** Changes to one book in a bulk edit. Functions receive the current record and return what to change. */
+export interface BookPatch {
+  status?: Status
+  format?: Format
+  /** Your rating: kept in step with your latest finished read. null clears it. */
+  rating?: number | null
+  entry?: (e: Entry) => Partial<Entry>
+  work?: (w: Work) => Partial<Work>
+  edition?: (e: Edition) => Partial<Edition>
+  /** Applies to your latest read (the one in progress, else the most recent). */
+  read?: (r: Read) => Partial<Read>
+}
+export interface BookPatchResult {
+  /** Book or edition details couldn't be changed (another reader's catalogue record). */
+  locked: boolean
+  /** A change to read dates/notes was asked for, but the book has no reads. */
+  noRead: boolean
+  /** The new dates would put the finish before the start (or in the future), so they weren't saved. */
+  badDates: boolean
+}
+
 export interface NewBook {
   work: Omit<Work, 'id' | 'createdAt'> & { id?: string }
   edition: Omit<Edition, 'id' | 'workId' | 'createdAt'> & { id?: string }
@@ -66,6 +87,8 @@ interface Store {
   setStatus(entryId: string, s: Status, opts?: { undated?: boolean }): void
   /** Make your copy of a book this format: switches to (or creates) an edition in that format. */
   setFormat(entryId: string, format: Format): void
+  /** Bulk edit: apply many kinds of change to one book in one go. */
+  patchBook(entryId: string, p: BookPatch): BookPatchResult
   /** A new read, not yet saved: open it in the editor and save it from there. */
   draftRead(entryId: string, editionId?: string): Read
   startRead(entryId: string, editionId?: string): Read
@@ -518,6 +541,61 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
       }
       store.saveEdition(next)
       store.chooseEdition(entryId, next.id)
+    },
+
+    patchBook(entryId, p) {
+      const result: BookPatchResult = { locked: false, noRead: false, badDates: false }
+      const may = (rec?: { createdBy?: string }) => !!rec && (backend?.kind === 'local' || isAdmin || (!!userId && rec.createdBy === userId))
+      if (p.status && entryNow(entryId)?.status !== p.status) store.setStatus(entryId, p.status, { undated: true })
+      if (p.format) store.setFormat(entryId, p.format)
+      const entry = entryNow(entryId)
+      if (!entry) return result
+      if (p.entry) {
+        const patch = p.entry(entry)
+        if (Object.keys(patch).length) store.updateEntry(entryId, patch)
+      }
+      if (p.work) {
+        const work = live.current.works.find((w) => w.id === entry.workId)
+        if (work) {
+          const patch = p.work(work)
+          if (Object.keys(patch).length) {
+            if (may(work)) store.saveWork({ ...work, ...patch })
+            else result.locked = true
+          }
+        }
+      }
+      if (p.edition) {
+        const now = entryNow(entryId)!
+        const ed = live.current.editions.find((e) => e.id === now.editionId) ?? live.current.editions.find((e) => e.workId === now.workId)
+        if (ed) {
+          const patch = p.edition(ed)
+          if (Object.keys(patch).length) {
+            if (may(ed)) store.saveEdition({ ...ed, ...patch })
+            else result.locked = true
+          }
+        }
+      }
+      const reads = readsNow(entryId)
+      const latest = reads.find((r) => r.state === 'reading' || r.state === 'paused')
+        ?? [...reads].sort((a, b) => (a.finishedOn ?? a.startedOn ?? '').localeCompare(b.finishedOn ?? b.startedOn ?? '')).pop()
+      if (p.read) {
+        if (!latest) result.noRead = true
+        else {
+          const next = { ...latest, ...p.read(latest) }
+          const s = next.startedOn, f = next.finishedOn
+          const bad = (s && f && s.length === 10 && f.length === 10 && f < s) || (s ?? '') > today() || (f ?? '') > today()
+          if (bad) result.badDates = true
+          else if (JSON.stringify(next) !== JSON.stringify(latest)) store.saveRead(next)
+        }
+      }
+      if (p.rating !== undefined) {
+        const rating = p.rating ?? undefined
+        const lastFinished = readsNow(entryId).filter((r) => r.state === 'finished')
+          .sort((a, b) => (a.finishedOn ?? '').localeCompare(b.finishedOn ?? '')).pop()
+        if (lastFinished && lastFinished.rating !== rating) store.saveRead({ ...lastFinished, rating })
+        store.updateEntry(entryId, { rating })
+      }
+      return result
     },
 
     draftRead(entryId, editionId) {

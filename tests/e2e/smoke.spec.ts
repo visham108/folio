@@ -252,11 +252,17 @@ test('bulk edit and per-year goals', async ({ page }) => {
   await page.getByRole('button', { name: new RegExp(`Select all ${n}`) }).click()
   await page.getByRole('button', { name: 'Edit' }).click()
   const sheet = page.getByRole('dialog', { name: new RegExp(`Edit ${n} books`) })
-  await sheet.getByRole('radiogroup', { name: 'Format' }).getByRole('radio', { name: 'Ebook' }).click()
-  await sheet.getByRole('radiogroup', { name: 'I own a copy' }).getByRole('radio', { name: 'Yes' }).click()
-  await sheet.getByRole('button', { name: /Apply to/ }).click()
+  await sheet.locator('#bulk-format-mode').selectOption('set')
+  await sheet.locator('#bulk-format').selectOption('ebook')
+  await sheet.locator('#bulk-owned-mode').selectOption('set')
+  // Find and replace across every selected title.
+  await sheet.locator('#bulk-title-mode').selectOption('replace')
+  await sheet.getByLabel('Title: find').fill('the')
+  await sheet.getByLabel('Title: replace with').fill('Thee')
+  await sheet.getByRole('button', { name: /Apply 3 changes to/ }).click()
   await page.locator('select[aria-label="Format"]').selectOption('ebook')
   await expect(page.locator('.tile')).toHaveCount(n)
+  expect(await page.locator('.tile-title', { hasText: /\bthe\b/ }).count()).toBe(0)
 
   // A past year gets its own goal; this year's is unchanged.
   const year = new Date().getFullYear()
