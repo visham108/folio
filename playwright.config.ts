@@ -5,6 +5,8 @@ export default defineConfig({
   testDir: 'tests/e2e',
   timeout: 60_000,
   retries: process.env.CI ? 1 : 0,
+  // On GitHub, failures also appear as annotations on the run.
+  reporter: process.env.CI ? [['github'], ['list']] : 'list',
   use: {
     baseURL: 'http://localhost:4173',
     // Lets the test reuse a pre-installed Chromium (set PW_CHROMIUM) instead of downloading one.
