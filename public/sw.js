@@ -2,7 +2,7 @@
 // Pages are network-first (you always get the latest version when online);
 // the app's hashed files and fonts are cache-first. Book data is not handled
 // here: the app keeps its own offline copy and syncs changes itself.
-const CACHE = 'folio-shell-v1'
+const CACHE = 'folio-shell-v2'
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg']
 
 self.addEventListener('install', (event) => {
@@ -17,6 +17,22 @@ self.addEventListener('activate', (event) => {
   })())
 })
 
+// Store the newest app page. When it's a new version, drop the old version's files;
+// the app re-fetches the screens it needs (and preloads the rest) straight away.
+async function keepLatest(res) {
+  const cache = await caches.open(CACHE)
+  const html = await res.clone().text()
+  const old = await cache.match('./index.html')
+  const changed = !old || (await old.text()) !== html
+  await cache.put('./index.html', res)
+  if (!changed) return
+  const used = new Set([...html.matchAll(/(?:src|href)="\.?\/?(assets\/[^"]+)"/g)].map((m) => new URL(m[1], self.registration.scope).href))
+  if (!used.size) return
+  for (const key of await cache.keys()) {
+    if (key.url.startsWith(self.registration.scope + 'assets/') && !used.has(key.url)) await cache.delete(key)
+  }
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request
   if (req.method !== 'GET') return
@@ -26,14 +42,16 @@ self.addEventListener('fetch', (event) => {
   if (!sameOrigin && !isFont) return // database, book search, covers: straight to the network
 
   if (req.mode === 'navigate') {
+    // Only the app itself is kept for offline use; other pages (e.g. privacy.html) aren't.
+    const scope = new URL(self.registration.scope).pathname
+    const isApp = url.pathname === scope || url.pathname === scope + 'index.html'
     event.respondWith((async () => {
       try {
         const fresh = await fetch(req)
-        const cache = await caches.open(CACHE)
-        cache.put('./index.html', fresh.clone())
+        if (isApp && fresh.ok) event.waitUntil(keepLatest(fresh.clone()))
         return fresh
       } catch {
-        return (await caches.match('./index.html')) || (await caches.match('./')) || Response.error()
+        return (isApp && ((await caches.match('./index.html')) || (await caches.match('./')))) || (await caches.match(req)) || Response.error()
       }
     })())
     return
