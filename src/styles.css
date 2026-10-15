@@ -414,8 +414,21 @@ textarea.input { resize: vertical; line-height: 1.55; }
 .login-actions { display: flex; flex-direction: column; gap: 12px; margin: 34px 0 18px; max-width: 360px; }
 .login-actions .btn { height: 50px; }
 .fine { font-size: 0.82rem; color: var(--muted); max-width: 32em; }
+.login-actions .or { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 0.8rem; }
+.login-actions .or::before, .login-actions .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.email-form { display: flex; flex-direction: column; gap: 10px; }
+.email-form .input { height: 50px; font-size: 1rem; }
+.email-form .btn { margin-top: 4px; }
+.email-sent { color: var(--ink-2); margin: 0 0 6px; }
+.code-input { letter-spacing: 0.4em; font-variant-numeric: tabular-nums; font-size: 1.3rem !important; text-align: center; }
+.code-input::placeholder { letter-spacing: 0.4em; opacity: 0.35; }
+.form-error { color: var(--danger); font-size: 0.88rem; margin: 0; }
+.email-links { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.link-btn { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; padding: 6px 0; color: var(--ink-2); font-size: 0.88rem; }
+.link-btn:hover:not(:disabled) { color: var(--accent); }
+.link-btn:disabled { color: var(--muted); cursor: default; }
 @media (max-width: 899px) {
-  .login { grid-template-columns: 1fr; }
+  .login { grid-template-columns: minmax(0, 1fr); }
   .login-art { height: 260px; padding: 20px; grid-template-columns: repeat(5, 1fr); gap: 14px; transform: rotate(-6deg) scale(1.2); }
   .login-cover .cover { --w: 72px; }
   .login-cover:nth-child(n + 6) { display: none; }

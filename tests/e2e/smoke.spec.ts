@@ -152,3 +152,22 @@ test('smart shelves, series, moods and export', async ({ page }) => {
 
   expect(errors).toEqual([])
 })
+
+test('signing in with an emailed code', async ({ page }) => {
+  const errors = watchErrors(page)
+  // Stand-ins for Supabase Auth, so no real email is sent.
+  await page.route('**/auth/v1/otp*', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }))
+  await page.route('**/auth/v1/verify*', (r) =>
+    r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ code: 403, error_code: 'otp_expired', msg: 'Token has expired or is invalid' }) }))
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Continue with email' }).click()
+  await page.getByLabel('Email address').fill('reader@example.com')
+  await page.getByRole('button', { name: 'Email me a sign-in code' }).click()
+  await expect(page.locator('.email-sent')).toContainText('reader@example.com')
+  await expect(page.getByRole('button', { name: /Send a new code in \d+s/ })).toBeDisabled()
+  await page.getByLabel('Code').fill('123456')
+  await expect(page.getByRole('alert')).toHaveText(/didn’t work/)
+  await page.getByRole('button', { name: 'Different email' }).click()
+  await expect(page.getByLabel('Email address')).toHaveValue('reader@example.com')
+  expect(errors.filter((e) => !/403/.test(e))).toEqual([])
+})

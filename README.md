@@ -56,6 +56,12 @@ With no Supabase configured, the app runs in **on-device mode**: everything is s
 5. Copy `.env.example` to `.env.local` and fill in `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
    (Supabase → Project Settings → API).
 
+6. **Email sign-in (optional):** people can also sign in with a 6-digit code sent to their email. Supabase's
+   built-in mailer only delivers to your own team, so connect an SMTP service (Authentication → Emails →
+   SMTP Settings; Brevo's free plan works with a verified Gmail sender). Then paste
+   `supabase/email-templates/sign-in-code.html` into both the **Magic Link** and **Confirm signup** templates,
+   with the subject `Your Folio code: {{ .Token }}`.
+
 Sessions persist, so you stay signed in until you sign out.
 
 ## Tests

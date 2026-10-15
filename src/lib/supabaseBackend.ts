@@ -26,6 +26,31 @@ export async function signInWithGoogle() {
   if (error) throw error
 }
 
+/** Sends a one-time sign-in code. New addresses get an account automatically. */
+export async function sendEmailCode(email: string) {
+  const { error } = await supabase().auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser: true, emailRedirectTo: window.location.origin + window.location.pathname },
+  })
+  if (error) throw new Error(friendlyAuthError(error))
+}
+
+export async function verifyEmailCode(email: string, token: string) {
+  const { error } = await supabase().auth.verifyOtp({ email, token, type: 'email' })
+  if (error) throw new Error(friendlyAuthError(error))
+}
+
+function friendlyAuthError(e: { message?: string; status?: number }): string {
+  const m = e.message ?? ''
+  if (/not authorized/i.test(m)) return 'Email sign-in isn’t switched on yet. Please continue with Google for now.'
+  if (/expired|invalid/i.test(m) && /token|otp|code/i.test(m)) return 'That code didn’t work. Check it, or send a new one.'
+  const wait = m.match(/after (\d+) seconds?/)
+  if (wait) return `Please wait ${wait[1]} seconds before asking for another code.`
+  if (e.status === 429 || /rate limit/i.test(m)) return 'Too many codes have been sent recently. Please try again in a little while.'
+  if (/invalid.*email|email.*invalid/i.test(m)) return 'That doesn’t look like an email address.'
+  return m || 'Something went wrong. Please try again.'
+}
+
 // ── row mapping ─────────────────────────────────────────────────────────────
 
 const und = <T,>(v: T | null): T | undefined => (v === null ? undefined : v)
