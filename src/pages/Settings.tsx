@@ -7,8 +7,9 @@ import { sampleLibrary } from '../lib/sample'
 import { downloadBackup, lastBackup } from '../lib/backup'
 import { downloadText, fullCsv, goodreadsCsv } from '../lib/exporter'
 import { fmtDate, localIso, plural, today } from '../lib/util'
-import type { Settings, Snapshot } from '../lib/types'
+import { goalFor, withGoal, type Settings, type Snapshot } from '../lib/types'
 import { useStore } from '../state/store'
+import { FillLengthsButton, useMissingLengths } from '../components/FillLengths'
 import { useToast } from '../state/toast'
 
 export function SettingsPage() {
@@ -18,7 +19,9 @@ export function SettingsPage() {
   const s = data.settings
   const jsonFile = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  const [goal, setGoal] = useState(String(s.yearlyGoal))
+  const missingLengths = useMissingLengths()
+  const thisYear = new Date().getFullYear()
+  const [goal, setGoal] = useState(String(goalFor(s, thisYear) ?? ''))
   const [importOpen, setImportOpen] = useState(false)
   const [last, setLast] = useState(lastBackup())
   const [confirmWipe, setConfirmWipe] = useState(false)
@@ -66,11 +69,12 @@ export function SettingsPage() {
             e.target.value = nameCase(e.target.value)
             store.saveSettings({ displayName: e.target.value || undefined })
           }} placeholder="What should we call you?" /></Field>
-          <Field label="Books per year goal">
-            <input className="input" inputMode="numeric" value={goal} onChange={(e) => setGoal(e.target.value)} onBlur={() => {
+          <Field label={`Reading goal for ${thisYear}`} hint="Set goals for other years from Stats.">
+            <input className="input" inputMode="numeric" value={goal} placeholder="No goal" onChange={(e) => setGoal(e.target.value)} onBlur={() => {
               const n = parseInt(goal, 10)
-              if (n > 0 && n < 1000) store.saveSettings({ yearlyGoal: n })
-              else setGoal(String(s.yearlyGoal))
+              if (n > 0 && n < 1000) store.saveSettings(withGoal(s, thisYear, n))
+              else if (!goal.trim()) store.saveSettings(withGoal(s, thisYear, 0))
+              else setGoal(String(goalFor(s, thisYear) ?? ''))
             }} />
           </Field>
           <Field label="An hour of listening counts as" hint="Used for “combined” stats. Around 30 pages an hour at a typical narration pace." className="span-2">
@@ -119,6 +123,13 @@ export function SettingsPage() {
             <FileSpreadsheet size={16} /> Full spreadsheet (one row per read)
           </button>
         </div>
+        {missingLengths.length > 0 && (
+          <>
+            <h4 className="sub-head">Missing page counts</h4>
+            <p className="muted small">{plural(missingLengths.length, 'book')} in your library {missingLengths.length === 1 ? 'has' : 'have'} no page count, so {missingLengths.length === 1 ? 'it’s' : 'they’re'} left out of page totals. Folio can look them up on Google Books and Open Library.</p>
+            <div className="btn-row"><FillLengthsButton className="btn btn-ghost" /></div>
+          </>
+        )}
       </section>
 
       <section className="card form-card">

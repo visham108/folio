@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
+import { goalFor } from '../lib/types'
 import { Link, useNavigate } from 'react-router-dom'
 import { seriesSlug } from '../lib/series'
 import {
@@ -160,7 +161,8 @@ export function YearPatterns({ year, items }: { year: number; items: Completion[
   const { data } = useStore()
   const all = items
   const ys = useMemo(() => all.filter((c) => c.year === year), [all, year])
-  const race = useMemo(() => goalRace(all, year, data.settings.yearlyGoal), [all, year, data.settings.yearlyGoal])
+  const goal = goalFor(data.settings, year) ?? 0
+  const race = useMemo(() => goalRace(all, year, goal), [all, year, goal])
   const speed = useMemo(() => readingSpeed(all, data.logs, monthPeriods(year)), [all, data.logs, year])
   const { monthStarts } = race
   const dayLabel = (d: number) => new Date(Date.UTC(year, 0, 1 + d)).toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' })
@@ -171,15 +173,15 @@ export function YearPatterns({ year, items }: { year: number; items: Completion[
       <p className="muted stats-group-sub">How the year unfolded, and what you reached for.</p>
 
       <ChartCard title="Race against your goal"
-        sub={race.you.length ? `${plural(race.done, 'book')} so far; the pace line is ${data.settings.yearlyGoal} books spread evenly over the year.` : `Starts on January 1, ${year}.`}
+        sub={race.you.length ? goal ? `${plural(race.done, 'book')} so far; the pace line is ${goal} books spread evenly over the year.` : `${plural(race.done, 'book')} so far. Set a goal for ${year} to see the pace line.` : `Starts on January 1, ${year}.`}
         legend={<Legend items={[{ id: 'print', label: 'You' }, { id: 'pace', label: 'Goal pace' }]} />}
         table={<SimpleTable head={['Month', 'Books by month end', 'Goal pace']} rows={monthStarts.map((s, m) => {
           const end = (monthStarts[m + 1] ?? race.days) - 1
           // Months still to come have no total yet.
           const you = s > race.lastDay ? '–' : race.you.filter((p) => p.x <= end).at(-1)?.y ?? 0
-          return [monthName(m), you, (data.settings.yearlyGoal * (end + 1)) / race.days]
+          return [monthName(m), you, (goal * (end + 1)) / race.days]
         })} />}>
-        {race.you.length > 0 && race.ahead !== 0 && (
+        {goal > 0 && race.you.length > 0 && race.ahead !== 0 && (
           // Same rounding and wording as the goal card on Today.
           <div className="stat-inline"><span><b>{Math.abs(race.ahead).toLocaleString()}</b>{`${Math.abs(race.ahead) === 1 ? 'book' : 'books'} ${race.ahead > 0 ? 'ahead of' : 'behind'} pace`}</span></div>
         )}
@@ -190,7 +192,7 @@ export function YearPatterns({ year, items }: { year: number; items: Completion[
           ticks={[0, monthStarts[3], monthStarts[6], monthStarts[9], race.days - 1]}
           format={one}
           series={[
-            { id: 'pace', label: 'Goal pace', color: 'var(--muted)', points: race.pace, reference: true },
+            ...(goal > 0 ? [{ id: 'pace', label: 'Goal pace', color: 'var(--muted)', points: race.pace, reference: true }] : []),
             { id: 'you', label: 'You', color: 'var(--c-print)', points: race.you },
           ]}
         />

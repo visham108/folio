@@ -146,13 +146,30 @@ export interface Shelf {
 
 export interface Settings {
   displayName?: string
+  /** This year's goal (kept for older data; goals[year] wins when set). */
   yearlyGoal: number
+  /** A goal per year, e.g. { "2020": 30 }. 0 means no goal for that year. */
+  goals?: Record<string, number>
   /** How many pages an hour of listening counts as when combining stats. */
   audioPagesPerHour: number
   theme: 'system' | 'light' | 'dark'
 }
 
 export const DEFAULT_SETTINGS: Settings = { yearlyGoal: 24, audioPagesPerHour: 30, theme: 'system' }
+
+/** The reading goal for a year: what you set for it, or (for this year only) your standing goal. */
+export function goalFor(s: Settings, year: number): number | undefined {
+  const set = s.goals?.[String(year)]
+  if (set != null) return set > 0 ? set : undefined
+  return year === new Date().getFullYear() && s.yearlyGoal > 0 ? s.yearlyGoal : undefined
+}
+
+/** Settings change that sets (or with 0, removes) the goal for a year. */
+export function withGoal(s: Settings, year: number, goal: number): Partial<Settings> {
+  const patch: Partial<Settings> = { goals: { ...(s.goals ?? {}), [String(year)]: goal } }
+  if (year === new Date().getFullYear() && goal > 0) patch.yearlyGoal = goal
+  return patch
+}
 
 export interface Snapshot {
   works: Work[]

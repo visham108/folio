@@ -7,6 +7,7 @@ import {
 import { FORMATS, STATUSES, type Format, type Snapshot, type Status } from '../lib/types'
 import { fmtDate, plural } from '../lib/util'
 import { useStore } from '../state/store'
+import { useFillLengths } from './FillLengths'
 import { useToast } from '../state/toast'
 import { Sheet, Stars } from './ui'
 
@@ -28,6 +29,14 @@ export function ImportSheet({ open, onClose }: { open: boolean; onClose: () => v
   const [file, setFile] = useState<Loaded | null>(null)
   const [cols, setCols] = useState<ColumnGuess[]>([])
   const [values, setValues] = useState<ValueMaps | null>(null)
+  // After an import, look up page counts for the new books that came without one.
+  const fill = useFillLengths()
+  const [autoFill, setAutoFill] = useState(false)
+  useEffect(() => {
+    if (!autoFill) return
+    setAutoFill(false)
+    if (fill.missing.length) void fill.run()
+  }, [autoFill, fill.missing]) // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [drag, setDrag] = useState(false)
@@ -105,6 +114,7 @@ export function ImportSheet({ open, onClose }: { open: boolean; onClose: () => v
       const full = buildImport(file.rows, cols, values, existing)
       await store.importData(full.data)
       toast(`Imported ${plural(full.data.entries.length, 'book')} from ${file.source}${full.skipped ? ` (${full.skipped} were already on your shelves)` : ''}`)
+      setAutoFill(true)
       close()
     } catch (e) {
       setError('The import stopped part-way: ' + (e as Error).message + '. Books already saved will be matched, not duplicated, if you run it again.')

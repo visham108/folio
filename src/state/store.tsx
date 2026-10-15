@@ -6,7 +6,7 @@ import { mergeLibrary } from '../lib/merge'
 import { cacheSnapshot, forgetSnapshot, withOffline, type OfflineBackend } from '../lib/offline'
 import { cloudConfigured, createCloudBackend, sessionUserId, supabase } from '../lib/supabaseBackend'
 import {
-  emptySnapshot, mediumOf, type Edition, type Entry, type LogPoint, type Read, type Settings, type Shelf,
+  emptySnapshot, mediumOf, type Edition, type Format, type Entry, type LogPoint, type Read, type Settings, type Shelf,
   type Snapshot, type Status, type Work,
 } from '../lib/types'
 import { nowIso, today, uid } from '../lib/util'
@@ -62,7 +62,10 @@ interface Store {
   removeEntry(id: string): () => void
   deleteEdition(id: string): Promise<void>
   mergeWorks(fromId: string, intoId: string): Promise<void>
-  setStatus(entryId: string, s: Status): void
+  /** Move a book to a pile. `undated` records a finish without today's date (for bulk edits). */
+  setStatus(entryId: string, s: Status, opts?: { undated?: boolean }): void
+  /** Make your copy of a book this format: switches to (or creates) an edition in that format. */
+  setFormat(entryId: string, format: Format): void
   /** A new read, not yet saved: open it in the editor and save it from there. */
   draftRead(entryId: string, editionId?: string): Read
   startRead(entryId: string, editionId?: string): Read
@@ -447,7 +450,7 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
       setData(await b.loadAll())
     },
 
-    setStatus(entryId, status) {
+    setStatus(entryId, status, opts = {}) {
       const entry = entryNow(entryId)
       if (!entry) return
       const reads = readsNow(entryId)
@@ -462,7 +465,7 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
           ? { ...open, state: 'finished', finishedOn: today(), progress: undefined }
           : reads.some((r) => r.state === 'finished')
             ? undefined
-            : { id: uid(), entryId, editionId: entry.editionId, state: 'finished', finishedOn: today() }
+            : { id: uid(), entryId, editionId: entry.editionId, state: 'finished', finishedOn: opts.undated ? undefined : today() }
       } else if ((status === 'dnf' || status === 'paused') && open) {
         changed = { ...open, state: status, finishedOn: status === 'dnf' ? open.finishedOn ?? today() : open.finishedOn }
       } else if (status === 'want' && open) {
@@ -483,6 +486,38 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
         persist((b) => b.deleteRead(id))
       }
       store.updateEntry(entryId, { status })
+    },
+
+    setFormat(entryId, format) {
+      const entry = entryNow(entryId)
+      if (!entry) return
+      const current = live.current.editions.find((e) => e.id === entry.editionId)
+        ?? live.current.editions.find((e) => e.workId === entry.workId)
+      if (current?.format === format) return
+      // Another edition of this book in that format: just make it yours.
+      const other = live.current.editions.find((e) => e.workId === entry.workId && e.format === format)
+      if (other) { store.chooseEdition(entryId, other.id); return }
+      const audio = format === 'audiobook'
+      const wasAudio = current?.format === 'audiobook'
+      // Your own edition (or anything, for the admin / on this device): correct it in place.
+      if (current && (backend?.kind === 'local' || isAdmin)) {
+        store.saveEdition({
+          ...current, format,
+          pages: audio ? undefined : wasAudio ? undefined : current.pages,
+          durationMin: audio ? current.durationMin : undefined,
+          narrators: audio ? current.narrators : [],
+        })
+        return
+      }
+      // Otherwise add an edition in that format, leaving the shared one as it is for others.
+      const t = nowIso()
+      const next: Edition = {
+        id: uid(), workId: entry.workId, format, title: current?.title, publisher: current?.publisher,
+        language: current?.language, pages: audio || wasAudio ? undefined : current?.pages,
+        narrators: [], translators: current?.translators ?? [], createdAt: t, createdBy: userId,
+      }
+      store.saveEdition(next)
+      store.chooseEdition(entryId, next.id)
     },
 
     draftRead(entryId, editionId) {

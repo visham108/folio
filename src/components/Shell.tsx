@@ -17,7 +17,7 @@ export function Shell() {
   const loc = useLocation()
   const outlet = useOutlet()
   const nav = useNavigate()
-  const { data, backend } = useStore()
+  const { backend } = useStore()
   const yp = useYearProgress()
   return (
     <div className="shell">
@@ -42,7 +42,7 @@ export function Shell() {
           <Ring pct={yp.pct} size={52} stroke={5}><span className="ring-mini">{yp.done}</span></Ring>
           <div>
             <div className="side-goal-t">{yp.year} goal</div>
-            <div className="muted small">{yp.done} of {data.settings.yearlyGoal} books</div>
+            <div className="muted small">{yp.goal ? `${yp.done} of ${yp.goal} books` : `${yp.done} ${yp.done === 1 ? 'book' : 'books'} read`}</div>
           </div>
         </Link>
         <div className="side-foot muted small">{backend?.kind === 'cloud' ? backend.userLabel : 'Saved on this device'}</div>

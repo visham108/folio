@@ -6,8 +6,10 @@ import { BarList, Columns, Heatmap, Legend, MEDIA, type ColumnDatum } from '../c
 import { Cover } from '../components/Cover'
 import { AllTimePatterns, YearPatterns } from '../components/StatsPatterns'
 import { Empty, Ring, Segmented } from '../components/ui'
+import { GoalSheet } from '../components/GoalSheet'
+import { FillLengthsButton } from '../components/FillLengths'
 import { dailyActivity, pageEquivalent, summarize, undated, yearsWithData, type Completion } from '../lib/stats'
-import type { Medium } from '../lib/types'
+import { goalFor, type Medium } from '../lib/types'
 import { compact, fmtDate, fmtDuration, fmtNumber, monthName, plural } from '../lib/util'
 import { useStore } from '../state/store'
 import { useCompletions } from './hooks'
@@ -29,6 +31,7 @@ export function Stats() {
   const year = allTime ? 0 : yParam ? parseInt(yParam, 10) : new Date().getFullYear()
   const [metric, setMetric] = useState<Metric>('books')
   const [table, setTable] = useState(false)
+  const [goalOpen, setGoalOpen] = useState(false)
 
   const sum = useMemo(() => summarize(all, year), [all, year])
   const heat = useMemo(() => dailyActivity(data.logs, all, year, settings), [data.logs, all, year, settings])
@@ -61,6 +64,8 @@ export function Stats() {
       byMedium: MEDIA.map((m) => ({ ...m, n: items.filter((c) => c.medium === m.id).length })),
       rereads: items.filter((c) => c.isReread).length,
       undated: allTime ? undated(items).length : 0,
+      // Finished books whose edition has no page count (or listening time), so they add nothing to those totals.
+      noLength: items.filter((c) => !c.pages && !c.minutes).length,
     }
   }, [all, sum, allTime, settings])
 
@@ -69,7 +74,8 @@ export function Stats() {
   // Tables show exact figures; nothing is "–" in cells and totals alike.
   const exact = (n: number) => (n ? fmtNumber(n, metric === 'hours' ? 1 : 0) : '–')
   const charted = MEDIA.filter((m) => columns.some((c) => (c.parts[m.id] ?? 0) > 0))
-  const goalPct = sum.books / Math.max(1, settings.yearlyGoal)
+  const goal = goalFor(settings, year)
+  const goalPct = goal ? sum.books / goal : 0
   const isCurrent = year === new Date().getFullYear()
 
   if (!all.length) {
@@ -107,8 +113,9 @@ export function Stats() {
         <div className="stat-hero-main">
           <div className="hero-num">{totals.books}</div>
           <p className="hero-sentence">
-            {totals.books === 1 ? 'book' : 'books'} finished{allTime ? '' : ` in ${year}`}: <b>{totals.pages.toLocaleString()}</b> pages read and{' '}
-            <b>{Math.round(totals.minutes / 60).toLocaleString()} hours</b> listened.
+            {totals.books === 1 ? 'book' : 'books'} finished{allTime ? '' : ` in ${year}`}
+            {totals.noLength === totals.books ? '.' : <>: <b>{totals.pages.toLocaleString()}</b> pages read and{' '}
+              <b>{Math.floor(totals.minutes / 60).toLocaleString()} hours</b> listened.</>}
             {totals.rereads > 0 && <> {totals.rereads === 1 ? 'One was a reread.' : `${totals.rereads} were rereads.`}</>}
           </p>
           <div className="split" aria-label="Books by format">
@@ -119,16 +126,32 @@ export function Stats() {
           <div className="legend">
             {totals.byMedium.filter((m) => m.n).map((m) => <span key={m.id}><i className={`sw sw-${m.id}`} />{m.label} <b>{m.n}</b></span>)}
           </div>
+          {totals.noLength > 0 && (
+            <div className="missing-note">
+              <p className="muted small">
+                {totals.noLength === totals.books
+                  ? `None of ${totals.books === 1 ? 'this book has' : `these ${totals.books} books have`} a page count yet, so pages and hours can’t be added up.`
+                  : `${plural(totals.noLength, 'book')} ${totals.noLength === 1 ? 'has' : 'have'} no page count, so ${totals.noLength === 1 ? 'it isn’t' : 'they aren’t'} in the page totals.`}
+              </p>
+              <FillLengthsButton />
+            </div>
+          )}
           {totals.undated > 0 && (
             <p className="muted small">{plural(totals.undated, 'finished book')} {totals.undated === 1 ? 'has' : 'have'} no finish date, so {totals.undated === 1 ? 'it’s' : 'they’re'} in the totals but not the timeline.</p>
           )}
         </div>
         {!allTime && (
           <div className="stat-hero-goal">
-            <Ring pct={goalPct} size={132} stroke={10}>
-              <div className="ring-num">{sum.books}<small>/{settings.yearlyGoal}</small></div>
-            </Ring>
-            <span className="muted small">{goalPct >= 1 ? 'Goal reached ✦' : isCurrent ? `${settings.yearlyGoal - sum.books} to go` : `${Math.round(goalPct * 100)}% of goal`}</span>
+            <button className="goal-ring-btn" onClick={() => setGoalOpen(true)} aria-label={goal ? `Goal for ${year}: ${goal} books. Change it` : `Set a goal for ${year}`}>
+              <Ring pct={goalPct} size={132} stroke={10}>
+                {goal ? <div className="ring-num">{sum.books}<small>/{goal}</small></div> : <div className="ring-num ring-empty">{sum.books}</div>}
+              </Ring>
+            </button>
+            <span className="muted small">
+              {!goal ? 'No goal for this year'
+                : goalPct >= 1 ? 'Goal reached ✦' : isCurrent ? `${goal - sum.books} to go` : `${Math.round(goalPct * 100)}% of goal`}
+            </span>
+            <button className="link small" onClick={() => setGoalOpen(true)}>{goal ? 'Change goal' : 'Set a goal'}</button>
           </div>
         )}
         <div className="stat-hero-combined">
@@ -137,6 +160,7 @@ export function Stats() {
           <span className="muted tiny">page-equivalents, counting an hour of listening as {settings.audioPagesPerHour} pages (<Link to="/settings" className="link">change</Link>)</span>
         </div>
       </section>
+      <GoalSheet year={year} open={goalOpen} onClose={() => setGoalOpen(false)} />
 
       <section className="card chart-card">
         <div className="chart-head">

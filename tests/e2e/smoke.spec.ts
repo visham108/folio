@@ -238,3 +238,35 @@ test('a change survives an immediate reload', async ({ page }) => {
     await expect(page.getByRole('radio', { name: pace })).toBeChecked()
   }
 })
+
+test('bulk edit and per-year goals', async ({ page }) => {
+  const errors = watchErrors(page)
+  await startOnDevice(page)
+  await page.goto('/#/settings')
+  await page.getByRole('button', { name: /sample library/ }).click()
+
+  // Select every want-to-read book and make them all ebooks, owned.
+  await openLibrary(page, '/want')
+  const n = await page.locator('.tile').count()
+  await page.getByRole('button', { name: 'Select' }).click()
+  await page.getByRole('button', { name: new RegExp(`Select all ${n}`) }).click()
+  await page.getByRole('button', { name: 'Edit' }).click()
+  const sheet = page.getByRole('dialog', { name: new RegExp(`Edit ${n} books`) })
+  await sheet.getByRole('radiogroup', { name: 'Format' }).getByRole('radio', { name: 'Ebook' }).click()
+  await sheet.getByRole('radiogroup', { name: 'I own a copy' }).getByRole('radio', { name: 'Yes' }).click()
+  await sheet.getByRole('button', { name: /Apply to/ }).click()
+  await page.locator('select[aria-label="Format"]').selectOption('ebook')
+  await expect(page.locator('.tile')).toHaveCount(n)
+
+  // A past year gets its own goal; this year's is unchanged.
+  const year = new Date().getFullYear()
+  await page.goto(`/#/stats/${year - 1}`)
+  await page.getByRole('button', { name: /Set a goal|Change goal/ }).first().click()
+  await page.getByLabel(`Books to read in ${year - 1}`).fill('30')
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.locator('.stat-hero-goal .ring-num')).toContainText('/30')
+  await page.goto(`/#/stats/${year}`)
+  await expect(page.locator('.stat-hero-goal .ring-num')).toContainText('/24')
+
+  expect(errors).toEqual([])
+})

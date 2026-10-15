@@ -454,7 +454,8 @@ textarea.input { resize: vertical; line-height: 1.55; }
 .onboard-card span { color: var(--ink-2); }
 
 .hero-strip { display: grid; grid-template-columns: minmax(280px, 1fr) 2fr; gap: 16px; }
-.goal-card { display: flex; align-items: center; gap: 22px; padding: 22px 26px; }
+.goal-card { display: flex; align-items: center; gap: 22px; padding: 22px 26px; text-align: left; width: 100%; color: inherit; transition: box-shadow 0.2s; }
+.goal-card:hover { box-shadow: var(--shadow), inset 0 0 0 1px var(--line-2); }
 .goal-line { font-size: 1.05rem; margin: 4px 0 2px; }
 .goal-line b { font: 500 1.35rem var(--serif); }
 .goal-pace { font-size: 0.85rem; color: var(--muted); }
@@ -959,7 +960,7 @@ body.no-scroll .toasts { top: calc(16px + env(safe-area-inset-top)); bottom: aut
 .trow.thead { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); pointer-events: none; min-height: 0; padding-top: 10px; padding-bottom: 6px; }
 .trow.thead:hover { background: none; }
 .head-actions { display: flex; align-items: center; gap: 10px; }
-.field { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.field.spaced { margin-top: 12px; }
 
 /* Read editor: delete confirmation in the footer. */
 .confirm-q { margin-right: auto; align-self: center; }
@@ -975,3 +976,30 @@ body.no-scroll .toasts { top: calc(16px + env(safe-area-inset-top)); bottom: aut
   .range::-webkit-slider-thumb { width: 28px; height: 28px; margin-top: -11px; }
   .range::-moz-range-thumb { width: 28px; height: 28px; }
 }
+
+/* Goals: the ring is a button that opens the goal editor. */
+.goal-ring-btn { border-radius: 50%; display: grid; place-items: center; }
+.goal-ring-btn:hover .ring-num { color: var(--accent-ink); }
+.ring-empty { color: var(--muted); }
+.stat-hero-goal .link.small { font-size: 0.82rem; }
+.missing-note { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin-top: 10px; }
+.missing-note p { margin: 0; }
+
+/* ── Bulk edit ─────────────────────────────────────────────────────────────── */
+.tile-cover { position: relative; }
+.tile-check { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(15, 12, 9, 0.45); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.9); color: #fff; backdrop-filter: blur(4px); }
+.tile.selected .tile-check { background: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); color: var(--on-accent); }
+.tile.selecting .tile-link:hover .cover { transform: none; }
+.tile.selected .cover { outline: 3px solid var(--accent); outline-offset: 3px; }
+.row-check { width: 22px; height: 22px; margin: 0 auto; border-radius: 6px; box-shadow: inset 0 0 0 2px var(--line-2); }
+.row-check.on { background: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+.trow.selected { background: var(--accent-soft); }
+.btn.on { background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line-2); }
+.select-bar { position: sticky; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 30; display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap;
+  margin-top: 24px; padding: 12px 14px 12px 18px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-lg), inset 0 0 0 1px var(--line-2); }
+.select-bar .grow { flex: 1; }
+@media (max-width: 720px) { .select-bar { bottom: calc(92px + env(safe-area-inset-bottom)); } }
+.bulk-grid { display: flex; flex-direction: column; gap: 18px; margin-top: 8px; }
+.bulk-grid .field { margin-top: 0; }
+.bulk-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; }

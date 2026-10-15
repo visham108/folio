@@ -199,7 +199,7 @@ export async function createCloudBackend(): Promise<Backend | null> {
         logs: logs.map(logFrom),
         shelves: shelves.map(shelfFrom),
         settings: p
-          ? { displayName: und(p.display_name), yearlyGoal: p.yearly_goal, audioPagesPerHour: p.audio_pages_per_hour, theme: p.theme }
+          ? { displayName: und(p.display_name), yearlyGoal: p.yearly_goal, goals: p.goals ?? {}, audioPagesPerHour: p.audio_pages_per_hour, theme: p.theme }
           : { ...DEFAULT_SETTINGS, displayName: user.user_metadata?.full_name },
       }
     },
@@ -229,7 +229,7 @@ export async function createCloudBackend(): Promise<Backend | null> {
     deleteShelf: (id) => ok(sb.from('shelves').delete().eq('id', id)),
     saveSettings: (s: Settings) =>
       upsert('profiles', [{
-        id: user.id, display_name: s.displayName ?? null, yearly_goal: s.yearlyGoal,
+        id: user.id, display_name: s.displayName ?? null, yearly_goal: s.yearlyGoal, goals: s.goals ?? {},
         audio_pages_per_hour: s.audioPagesPerHour, theme: s.theme, updated_at: new Date().toISOString(),
       }]),
     async saveMany(part) {

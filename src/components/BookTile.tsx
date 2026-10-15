@@ -1,12 +1,16 @@
 import { motion } from 'framer-motion'
-import { Heart, RotateCcw } from 'lucide-react'
+import { Check, Heart, RotateCcw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { Entry } from '../lib/types'
 import { useStore } from '../state/store'
 import { Cover } from './Cover'
 import { Stars } from './ui'
 
-export function BookTile({ entry, index = 0, meta }: { entry: Entry; index?: number; meta?: React.ReactNode }) {
+export function BookTile({ entry, index = 0, meta, selecting = false, selected = false, onToggle }: {
+  entry: Entry; index?: number; meta?: React.ReactNode
+  /** Selection mode (bulk edit): tapping toggles the book instead of opening it. */
+  selecting?: boolean; selected?: boolean; onToggle?: () => void
+}) {
   const { works, editionOf, readsByEntry } = useStore()
   const work = works.get(entry.workId)
   if (!work) return null
@@ -14,13 +18,22 @@ export function BookTile({ entry, index = 0, meta }: { entry: Entry; index?: num
   const times = (readsByEntry.get(entry.id) ?? []).filter((r) => r.state === 'finished').length
   return (
     <motion.div
-      className="tile"
+      className={`tile ${selecting ? 'selecting' : ''} ${selected ? 'selected' : ''}`}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: Math.min(index, 18) * 0.025, type: 'spring', stiffness: 260, damping: 26 }}
     >
-      <Link to={`/book/${work.id}`} className="tile-link">
-        <Cover work={work} edition={ed} size="md" />
+      <Link
+        to={`/book/${work.id}`}
+        className="tile-link"
+        role={selecting ? 'checkbox' : undefined}
+        aria-checked={selecting ? selected : undefined}
+        onClick={selecting ? (e) => { e.preventDefault(); onToggle?.() } : undefined}
+      >
+        <div className="tile-cover">
+          <Cover work={work} edition={ed} size="md" />
+          {selecting && <span className="tile-check" aria-hidden>{selected && <Check size={14} />}</span>}
+        </div>
         <div className="tile-meta">
           <div className="tile-title">{work.title}</div>
           <div className="tile-author">{work.authors.join(', ')}</div>

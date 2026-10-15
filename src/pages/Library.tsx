@@ -1,9 +1,10 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { Grid2x2, List, Pencil, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
+import { CheckSquare, Grid2x2, List, Pencil, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
 import { titleCase } from '../lib/titleCase'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { BookTile } from '../components/BookTile'
+import { BulkEditSheet } from '../components/BulkEdit'
 import { Cover } from '../components/Cover'
 import { ConfirmSheet, Empty, Segmented, Sheet, Stars } from '../components/ui'
 import { fold } from '../lib/match'
@@ -42,6 +43,13 @@ export function Library() {
   const [shelfName, setShelfName] = useState('')
   const [confirmDeleteShelf, setConfirmDeleteShelf] = useState(false)
   const openShelfEditor = (s: Shelf | 'new') => { setShelfEdit(s); setShelfName(s === 'new' ? '' : s.name) }
+
+  // Bulk edit: pick books, then change them together.
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const stopSelecting = () => { setSelecting(false); setSelected(new Set()) }
 
   const shelf = data.shelves.find((s) => s.id === pile)
   const smart = findSmart(pile)
@@ -115,6 +123,10 @@ export function Library() {
     return xs.filter((e) => works.has(e.workId)).sort(cmp[sort])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.entries, pile, shelf, smart, smartMembers, q, sort, format, works, readsByEntry, data.settings.audioPagesPerHour])
+
+  // Selected books that are still in view (a search or pile change narrows what "all" means).
+  const visibleSelected = list.filter((e) => selected.has(e.id))
+  const allSelected = list.length > 0 && visibleSelected.length === list.length
 
   const status = STATUSES.find((s) => s.id === pile)
   const known = pile === 'all' || pile === 'favorites' || !!shelf || !!smart || !!status
@@ -205,6 +217,9 @@ export function Library() {
         <select className="select" value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort">
           {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
         </select>
+        <button className={`btn btn-ghost sm ${selecting ? 'on' : ''}`} aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
+          <CheckSquare size={15} /> {selecting ? 'Done' : 'Select'}
+        </button>
         <Segmented
           size="sm"
           label="View"
@@ -223,7 +238,7 @@ export function Library() {
       ) : view === 'grid' ? (
         <div className="grid">
           <AnimatePresence initial={false}>
-            {list.map((e, i) => <BookTile key={e.id} entry={e} index={i} />)}
+            {list.map((e, i) => <BookTile key={e.id} entry={e} index={i} selecting={selecting} selected={selected.has(e.id)} onToggle={() => toggle(e.id)} />)}
           </AnimatePresence>
         </div>
       ) : (
@@ -241,8 +256,10 @@ export function Library() {
             const ed = store.editionOf(e)
             const reads = (readsByEntry.get(e.id) ?? []).filter((r) => r.state === 'finished').length
             return (
-              <Link key={e.id} to={`/book/${w.id}`} className="trow">
-                <Cover work={w} edition={ed} size="xs" />
+              <Link key={e.id} to={`/book/${w.id}`} className={`trow ${selecting && selected.has(e.id) ? 'selected' : ''}`}
+                role={selecting ? 'checkbox' : undefined} aria-checked={selecting ? selected.has(e.id) : undefined}
+                onClick={selecting ? (ev) => { ev.preventDefault(); toggle(e.id) } : undefined}>
+                {selecting ? <span className={`row-check ${selected.has(e.id) ? 'on' : ''}`} aria-hidden /> : <Cover work={w} edition={ed} size="xs" />}
                 <div className="trow-main">
                   <b>{w.title}</b>
                   <span className="muted">{w.authors.join(', ')}</span>
@@ -256,6 +273,19 @@ export function Library() {
           })}
         </div>
       )}
+
+      {selecting && (
+        <div className="select-bar" role="region" aria-label="Selected books">
+          <span><b>{visibleSelected.length}</b> selected</span>
+          <button className="link" onClick={() => setSelected(allSelected ? new Set() : new Set(list.map((e) => e.id)))}>
+            {allSelected ? 'Select none' : `Select all ${list.length}`}
+          </button>
+          <span className="grow" />
+          <button className="btn btn-ghost sm" onClick={stopSelecting}>Cancel</button>
+          <button className="btn btn-primary sm" disabled={!visibleSelected.length} onClick={() => setBulkOpen(true)}><Pencil size={14} /> Edit</button>
+        </div>
+      )}
+      <BulkEditSheet ids={visibleSelected.map((e) => e.id)} open={bulkOpen} onClose={() => setBulkOpen(false)} onDone={() => { setBulkOpen(false); stopSelecting() }} />
 
       <Sheet
         open={!!shelfEdit}
@@ -284,7 +314,7 @@ export function Library() {
         }
       >
         {shelfEdit === 'new' && <p className="muted">Shelves are your own piles: “Summer 2026”, “Book club”, “Comfort reads”. A book can sit on as many as you like.</p>}
-        <label className="field">
+        <label className="field spaced">
           <span className="field-label">Shelf name</span>
           <input className="input" value={shelfName} maxLength={80} onChange={(e) => setShelfName(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && shelfName.trim()) (e.currentTarget.closest('.sheet')?.querySelector('.sheet-foot .btn-primary') as HTMLButtonElement | null)?.click() }} />

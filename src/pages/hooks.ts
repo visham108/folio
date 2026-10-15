@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { buildSeries, type Series } from '../lib/series'
-import type { Work } from '../lib/types'
+import { goalFor, type Work } from '../lib/types'
 import { completions, type Completion, goalPace } from '../lib/stats'
 import { useStore } from '../state/store'
 
@@ -17,10 +17,10 @@ export function useYearProgress() {
   const all = useCompletions()
   const year = new Date().getFullYear()
   const done = all.filter((c) => c.year === year).length
-  const goal = data.settings.yearlyGoal || 1
+  const goal = goalFor(data.settings, year) ?? 0
   // Same pace sum as Stats, so both screens say the same thing.
   const pace = goalPace(done, goal, year)
-  return { year, done, goal, pct: done / goal, ahead: pace.ahead, paceText: pace.text }
+  return { year, done, goal, pct: goal ? done / goal : 0, ahead: pace.ahead, paceText: goal ? pace.text : 'No goal set for this year' }
 }
 
 // ── Series ────────────────────────────────────────────────────────────────────

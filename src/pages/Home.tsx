@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { BookTile } from '../components/BookTile'
 import { Cover } from '../components/Cover'
 import { Notices } from '../components/Notices'
+import { GoalSheet } from '../components/GoalSheet'
 import { ProgressSheet } from '../components/ProgressSheet'
 import { Bar, Empty, Ring, Stars } from '../components/ui'
 import { progressInfo } from '../lib/progress'
@@ -24,6 +25,7 @@ export function Home() {
   const store = useStore()
   const { data, works, editions } = store
   const nav = useNavigate()
+  const [goalOpen, setGoalOpen] = useState(false)
   const yp = useYearProgress()
   const comps = useCompletions()
   const [sheetRead, setSheetRead] = useState<Read>()
@@ -72,18 +74,26 @@ export function Home() {
       <Notices />
 
       <section className="hero-strip">
-        <div className="goal-card card">
+        <button className="goal-card card" onClick={() => setGoalOpen(true)} aria-label={yp.goal ? `Reading goal: ${yp.done} of ${yp.goal} books. Change it` : 'Set a reading goal for this year'}>
           <Ring pct={yp.pct} size={104} stroke={9}>
-            <div className="ring-num">{Math.round(Math.min(1, yp.pct) * 100)}<small>%</small></div>
+            <div className="ring-num">{yp.goal ? <>{Math.round(Math.min(1, yp.pct) * 100)}<small>%</small></> : yp.done}</div>
           </Ring>
           <div>
             <div className="kicker">Reading goal</div>
-            <div className="goal-line"><b>{yp.done}</b> of {yp.goal} books</div>
-            <div className={`goal-pace ${yp.ahead >= 0 ? 'good' : ''}`}>
-              {yp.paceText}
-            </div>
+            {yp.goal ? (
+              <>
+                <div className="goal-line"><b>{yp.done}</b> of {yp.goal} books</div>
+                <div className={`goal-pace ${yp.ahead >= 0 ? 'good' : ''}`}>{yp.paceText}</div>
+              </>
+            ) : (
+              <>
+                <div className="goal-line"><b>{yp.done}</b> {yp.done === 1 ? 'book' : 'books'} so far</div>
+                <div className="goal-pace">Tap to set a goal for {yp.year}</div>
+              </>
+            )}
           </div>
-        </div>
+        </button>
+        <GoalSheet year={yp.year} open={goalOpen} onClose={() => setGoalOpen(false)} />
         <div className="mini-stats">
           <div className="mini card"><span className="kicker">Pages</span><b>{compact(sum.pages)}</b></div>
           <div className="mini card"><span className="kicker">Listening</span><b>{Math.floor(sum.minutes / 60)}<small>h</small></b></div>
