@@ -1,15 +1,26 @@
 import type { Edition, Entry, Read, Snapshot, Work } from './types'
 import { FORMATS, STATUSES } from './types'
+import { localIso } from './util'
 
 /** CSV downloads: one Goodreads-compatible (also accepted by StoryGraph), one complete. */
 
+/** A cell written exactly as given: Goodreads' ="isbn" wrapper, which keeps leading zeros in Excel. */
+interface Formula { formula: string }
+const isbnCell = (isbn?: string): Formula => ({ formula: `="${isbn ?? ''}"` })
+const isFormula = (v: unknown): v is Formula => typeof v === 'object' && v != null && 'formula' in v
+
 const cell = (v: unknown): string => {
   if (v == null) return ''
-  const s = String(v)
+  let s = isFormula(v) ? v.formula : String(v)
+  // A title like =HYPERLINK(…) would run as a formula in a spreadsheet: an apostrophe makes it
+  // plain text there, and Folio's importer takes it off again.
+  if (!isFormula(v) && /^[=+\-@\t\r]/.test(s)) s = "'" + s
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 const toCsv = (rows: unknown[][]) => rows.map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n'
 
+// The day you added it on your own calendar (addedAt is a UTC timestamp).
+const addedOn = (e: Entry) => (Number.isFinite(Date.parse(e.addedAt)) ? localIso(new Date(e.addedAt)) : e.addedAt.slice(0, 10))
 const slash = (d?: string) => (d && d.length === 10 ? d.replace(/-/g, '/') : '')
 const lastFirst = (name: string) => {
   const parts = name.trim().split(/\s+/)
@@ -46,13 +57,16 @@ export function goodreadsCsv(s: Pick<Snapshot, 'works' | 'editions' | 'entries' 
     const lastDate = finished.map((r) => r.finishedOn).filter(Boolean).sort().pop()
     const exclusive = SHELF[entry.status]
     const shelves = [exclusive, ...entry.shelfIds.map((id) => shelfName.get(id)).filter(Boolean), ...entry.tags.map((t) => t.toLowerCase().replace(/\s+/g, '-'))]
-    const title = work.series ? `${work.title} (${work.series}, #${work.seriesIndex ?? ''})`.replace(', #)', ')') : work.title
+    // Goodreads shows "Title: Subtitle (Series, #2)", or just "(Series)" when there's no number.
+    const full = work.subtitle ? `${work.title}: ${work.subtitle}` : work.title
+    const title = work.series ? `${full} (${work.series}${work.seriesIndex != null ? `, #${work.seriesIndex}` : ''})` : full
     return [
       i + 1, title, work.authors[0] ?? '', lastFirst(work.authors[0] ?? ''), work.authors.slice(1).join(', '),
-      edition?.isbn10 ? `="${edition.isbn10}"` : '=""""', edition?.isbn13 ? `="${edition.isbn13}"` : '=""""',
+      isbnCell(edition?.isbn10), isbnCell(edition?.isbn13),
+      // Goodreads only stores whole stars; the full CSV keeps halves.
       entry.rating ? Math.round(entry.rating) : 0, '', edition?.publisher ?? '', BINDING[edition?.format ?? 'other'],
       edition?.pages ?? '', edition?.publishedDate?.slice(0, 4) ?? '', work.firstPublished ?? '',
-      slash(lastDate), slash(entry.addedAt.slice(0, 10)), shelves.join(', '), shelves.join(', '), exclusive,
+      slash(lastDate), slash(addedOn(entry)), shelves.join(', '), shelves.join(', '), exclusive,
       entry.review ?? '', '', '', finished.length, entry.owned ? 1 : 0,
     ]
   })
@@ -72,7 +86,7 @@ export function fullCsv(s: Pick<Snapshot, 'works' | 'editions' | 'entries' | 're
     const base = [work.title, work.subtitle ?? '', work.authors.join('; '), work.series ?? '', work.seriesIndex ?? '', work.genres.join('; '),
       work.firstPublished ?? '', STATUSES.find((x) => x.id === entry.status)?.label ?? entry.status, entry.rating ?? '', entry.favorite ? 'yes' : '',
       entry.owned ? 'yes' : '', entry.shelfIds.map((id) => shelfName.get(id)).filter(Boolean).join('; '), entry.tags.join('; '),
-      (entry.moods ?? []).join('; '), entry.pace ?? '', entry.addedAt.slice(0, 10)]
+      (entry.moods ?? []).join('; '), entry.pace ?? '', addedOn(entry)]
     const list: (Read | undefined)[] = reads.length ? reads : [undefined]
     list.forEach((r, i) => {
       const ed = (r?.editionId && eds.get(r.editionId)) || edition

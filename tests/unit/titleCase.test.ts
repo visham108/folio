@@ -13,6 +13,15 @@ describe('titleCase', () => {
     ['world war ii', 'World War II'],
     ['what are you looking at', 'What Are You Looking At'],
     ['  dune   messiah ', 'Dune Messiah'],
+    ['21st century', '21st Century'],
+    ['the 4th of july', 'The 4th of July'],
+    ['the 1990s', 'The 1990s'],
+    ['mr. and mrs. bridge', 'Mr. and Mrs. Bridge'],
+    ['dr. jekyll and mr. hyde', 'Dr. Jekyll and Mr. Hyde'],
+    ['the end. or is it', 'The End. Or Is It'],
+    ["mcdonald's", "McDonald's"],
+    ['the machine stops', 'The Machine Stops'],
+    ['henry viii', 'Henry VIII'],
   ])('%s → %s', (input, want) => expect(titleCase(input)).toBe(want))
 })
 
@@ -26,5 +35,14 @@ describe('nameCase', () => {
     ['Don DeLillo', 'Don DeLillo'],
     ['gabriel garcía márquez', 'Gabriel García Márquez'],
     ['r. f. kuang', 'R. F. Kuang'],
+    ['vi keeland', 'Vi Keeland'],
+    ['xi jinping', 'Xi Jinping'],
+    ['henry viii', 'Henry VIII'],
+    ['john smith iii', 'John Smith III'],
+    ['juana inés de la cruz', 'Juana Inés de la Cruz'],
+    ['la toya jackson', 'La Toya Jackson'],
+    ['corrie ten boom', 'Corrie ten Boom'],
+    ['ludwig van der rohe', 'Ludwig van der Rohe'],
+    ['john mcphee', 'John McPhee'],
   ])('%s → %s', (input, want) => expect(nameCase(input)).toBe(want))
 })

@@ -1,7 +1,8 @@
 import { motion } from 'framer-motion'
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Medium } from '../lib/types'
-import { compact } from '../lib/util'
+import { niceMax } from '../lib/stats'
+import { compact, today } from '../lib/util'
 
 export const MEDIA: { id: Medium; label: string }[] = [
   { id: 'print', label: 'Print' },
@@ -17,15 +18,6 @@ export function Legend({ items }: { items: { id: string; label: string }[] }) {
       ))}
     </div>
   )
-}
-
-function niceMax(v: number): number {
-  if (v <= 2) return 2 // keeps the half-way tick on a whole number for small counts
-  const p = Math.pow(10, Math.floor(Math.log10(v)))
-  const n = v / p
-  // Steps chosen so the half-way gridline is also a round number.
-  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 3 ? 3 : n <= 4 ? 4 : n <= 5 ? 5 : n <= 6 ? 6 : n <= 8 ? 8 : 10
-  return step * p
 }
 
 export interface ColumnDatum {
@@ -145,7 +137,7 @@ export function Heatmap({ year, values, unitLabel }: { year: number; values: Map
   const lvl = (v: number) => (v <= 0 ? 0 : v <= levels[0] ? 1 : v <= levels[1] ? 2 : v <= levels[2] ? 3 : 4)
   const cell = 11, gap = 3
   const cols = Math.max(...weeks.map((w) => w.col)) + 1
-  const todayIso = new Date().toISOString().slice(0, 10)
+  const todayIso = today() // the reader's own date: UTC's would grey out today as the future
   return (
     <div className="heatmap" onPointerLeave={() => setHover(null)}>
       <div className="hm-scroll">

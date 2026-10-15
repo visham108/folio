@@ -6,9 +6,9 @@ import { BarList, Columns, Heatmap, Legend, MEDIA, type ColumnDatum } from '../c
 import { Cover } from '../components/Cover'
 import { AllTimePatterns, YearPatterns } from '../components/StatsPatterns'
 import { Empty, Ring, Segmented } from '../components/ui'
-import { dailyActivity, pageEquivalent, summarize, yearsWithData, type Completion } from '../lib/stats'
+import { dailyActivity, pageEquivalent, summarize, undated, yearsWithData, type Completion } from '../lib/stats'
 import type { Medium } from '../lib/types'
-import { compact, fmtDate, monthName, plural } from '../lib/util'
+import { compact, fmtDate, fmtDuration, fmtNumber, monthName, plural } from '../lib/util'
 import { useStore } from '../state/store'
 import { useCompletions } from './hooks'
 
@@ -60,11 +60,15 @@ export function Stats() {
       combined: items.reduce((s, c) => s + pageEquivalent(c, settings), 0),
       byMedium: MEDIA.map((m) => ({ ...m, n: items.filter((c) => c.medium === m.id).length })),
       rereads: items.filter((c) => c.isReread).length,
+      undated: allTime ? undated(items).length : 0,
     }
   }, [all, sum, allTime, settings])
 
   const fmt = metric === 'hours' ? (n: number) => (n < 10 ? n.toFixed(1).replace(/\.0$/, '') : compact(n)) : compact
   const unit = metric === 'hours' ? 'h' : ''
+  // Tables show exact figures; nothing is "–" in cells and totals alike.
+  const exact = (n: number) => (n ? fmtNumber(n, metric === 'hours' ? 1 : 0) : '–')
+  const charted = MEDIA.filter((m) => columns.some((c) => (c.parts[m.id] ?? 0) > 0))
   const goalPct = sum.books / Math.max(1, settings.yearlyGoal)
   const isCurrent = year === new Date().getFullYear()
 
@@ -113,8 +117,11 @@ export function Stats() {
             ))}
           </div>
           <div className="legend">
-            {totals.byMedium.map((m) => <span key={m.id}><i className={`sw sw-${m.id}`} />{m.label} <b>{m.n}</b></span>)}
+            {totals.byMedium.filter((m) => m.n).map((m) => <span key={m.id}><i className={`sw sw-${m.id}`} />{m.label} <b>{m.n}</b></span>)}
           </div>
+          {totals.undated > 0 && (
+            <p className="muted small">{plural(totals.undated, 'finished book')} {totals.undated === 1 ? 'has' : 'have'} no finish date, so {totals.undated === 1 ? 'it’s' : 'they’re'} in the totals but not the timeline.</p>
+          )}
         </div>
         {!allTime && (
           <div className="stat-hero-goal">
@@ -143,15 +150,19 @@ export function Stats() {
             <button className={`icon-btn ${table ? 'on' : ''}`} onClick={() => setTable((t) => !t)} aria-pressed={table} aria-label="Show as table"><Table2 size={16} /></button>
           </div>
         </div>
-        <Legend items={MEDIA.filter((m) => metric !== 'pages' || m.id !== 'audio').filter((m) => metric !== 'hours' || m.id === 'audio')} />
+        <Legend items={charted} />
         {table ? (
           <table className="data-table">
             <thead><tr><th>{allTime ? 'Year' : 'Month'}</th>{MEDIA.map((m) => <th key={m.id}>{m.label}</th>)}<th>Total</th></tr></thead>
             <tbody>
               {columns.map((c) => (
-                <tr key={c.key}><td>{c.label}</td>{MEDIA.map((m) => <td key={m.id}>{c.parts[m.id] ? fmt(c.parts[m.id]!) : '–'}</td>)}<td><b>{fmt(MEDIA.reduce((s, m) => s + (c.parts[m.id] ?? 0), 0))}</b></td></tr>
+                <tr key={c.key}><td>{c.label}</td>{MEDIA.map((m) => <td key={m.id}>{exact(c.parts[m.id] ?? 0)}</td>)}<td><b>{exact(MEDIA.reduce((s, m) => s + (c.parts[m.id] ?? 0), 0))}</b></td></tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr><th>Total</th>{MEDIA.map((m) => <td key={m.id}><b>{exact(columns.reduce((s, c) => s + (c.parts[m.id] ?? 0), 0))}</b></td>)}
+                <td><b>{exact(columns.reduce((s, c) => s + MEDIA.reduce((t, m) => t + (c.parts[m.id] ?? 0), 0), 0))}</b></td></tr>
+            </tfoot>
           </table>
         ) : (
           <Columns data={columns} format={fmt} unit={unit} ariaLabel={`${metric} ${allTime ? 'per year' : `per month in ${year}`}`} />
@@ -176,7 +187,7 @@ export function Stats() {
             <Tile icon={<Hourglass size={16} />} label="Average time per book" value={sum.avgDays ? `${Math.round(sum.avgDays)} days` : '—'} />
             <Tile icon={<Star size={16} />} label="Average rating" value={sum.avgRating ? sum.avgRating.toFixed(2) + ' ★' : '—'} />
             <Tile icon={<RotateCcw size={16} />} label="Rereads" value={String(sum.rereads)} />
-            <Tile icon={<Clock size={16} />} label="Listening" value={`${Math.round(sum.minutes / 60)}h ${Math.round(sum.minutes % 60)}m`} />
+            <Tile icon={<Clock size={16} />} label="Listening" value={fmtDuration(Math.round(sum.minutes))} />
           </section>
 
           <div className="two-col">

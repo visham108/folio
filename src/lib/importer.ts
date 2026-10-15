@@ -1,7 +1,7 @@
-import { coreTitle, findCandidates } from './match'
+import { coreTitle, findCandidates, fold } from './match'
 import { nameCase, titleCase } from './titleCase'
-import { MOODS, type Edition, type Entry, type Format, type Read, type Shelf, type Snapshot, type Status, type Work } from './types'
-import { cleanIsbn, isbn10to13, nowIso, parseDuration, uid } from './util'
+import { MOODS, type Edition, type Entry, type Format, type Read, type ReadState, type Shelf, type Snapshot, type Status, type Work } from './types'
+import { cleanIsbn, isbn10to13, localIso, nowIso, parseDuration, uid } from './util'
 
 /**
  * Imports a CSV export from any reading app (Goodreads, StoryGraph,
@@ -48,8 +48,15 @@ export function parseTable(text: string): { headers: string[]; rows: string[][] 
   return { headers, rows: nonEmpty.map((r) => r.map(unwrap)) }
 }
 
-/** Goodreads writes ISBNs as ="0123456789" so Excel keeps leading zeros. */
-const unwrap = (v: string) => v.replace(/^="(.*)"$/, '$1').replace(/^=(.*)$/, '$1').trim()
+/**
+ * Goodreads writes ISBNs as ="0123456789" so Excel keeps leading zeros: unwrap exactly that.
+ * Folio's exports put an apostrophe before a cell starting with = + - @ so spreadsheets
+ * don't run it as a formula: take that off again. Anything else is left as written.
+ */
+export const unwrap = (v: string) => {
+  const m = v.match(/^="(.*)"$/s)
+  return (m ? m[1] : v.replace(/^'(?=[=+\-@\t\r])/, '')).trim()
+}
 
 // ── 2. Map columns ─────────────────────────────────────────────────────────
 
@@ -58,7 +65,7 @@ export type FieldId =
   | 'narrators' | 'translators' | 'isbn' | 'isbn13' | 'isbn10' | 'asin' | 'publisher' | 'pages' | 'duration'
   | 'published' | 'firstPublished' | 'format' | 'status' | 'rating' | 'review' | 'notes' | 'dateAdded'
   | 'dateStarted' | 'dateFinished' | 'datesRead' | 'readCount' | 'shelves' | 'tags' | 'owned' | 'favorite'
-  | 'series' | 'seriesIndex' | 'genres' | 'language' | 'moods' | 'pace'
+  | 'series' | 'seriesIndex' | 'genres' | 'language' | 'moods' | 'pace' | 'readState' | 'readRating' | 'readNotes'
 
 export const FIELDS: { id: FieldId; label: string; multi?: boolean }[] = [
   { id: 'ignore', label: 'Don’t import' },
@@ -93,6 +100,9 @@ export const FIELDS: { id: FieldId; label: string; multi?: boolean }[] = [
   { id: 'dateFinished', label: 'Date finished' },
   { id: 'datesRead', label: 'All read dates (ranges)' },
   { id: 'readCount', label: 'Times read' },
+  { id: 'readState', label: 'This read: state' },
+  { id: 'readRating', label: 'This read: rating' },
+  { id: 'readNotes', label: 'This read: notes' },
   { id: 'shelves', label: 'Shelves', multi: true },
   { id: 'tags', label: 'Tags', multi: true },
   { id: 'moods', label: 'Moods', multi: true },
@@ -101,11 +111,13 @@ export const FIELDS: { id: FieldId; label: string; multi?: boolean }[] = [
   { id: 'favorite', label: 'Favourite' },
 ]
 
-const norm = (h: string) => h.toLowerCase().replace(/[^a-z0-9]/g, '')
+// "#" means number: "Series #" must not read as "Series".
+const norm = (h: string) => h.toLowerCase().replace(/#/g, 'number').replace(/[^a-z0-9]/g, '')
 
 // Headers we know are *not* the reader's own data, however close they look.
 const NEVER = new Set(['averagerating', 'avgrating', 'bookid', 'id', 'goodreadsid', 'workid', 'uid', 'numratings', 'ratingscount',
-  'bookshelveswithpositions', 'spoiler', 'readingposition', 'cover', 'coverurl', 'url', 'link', 'price', 'value'])
+  'bookshelveswithpositions', 'spoiler', 'readingposition', 'cover', 'coverurl', 'url', 'link', 'price', 'value',
+  'readnumber']) // Folio's "Read #": the order is in the dates
 
 const SYNONYMS: Record<Exclude<FieldId, 'ignore'>, string[]> = {
   title: ['title', 'booktitle', 'name', 'bookname', 'titlename', 'book', 'work'],
@@ -124,13 +136,13 @@ const SYNONYMS: Record<Exclude<FieldId, 'ignore'>, string[]> = {
   asin: ['asin', 'kindleasin', 'audibleasin'],
   format: ['binding', 'format', 'bookformat', 'editionformat', 'media', 'mediatype', 'type', 'edition'],
   pages: ['numberofpages', 'pages', 'pagecount', 'numpages', 'totalpages', 'pagestotal'],
-  duration: ['duration', 'listeninglength', 'runtime', 'audiolength', 'audioduration', 'lengthinminutes', 'minutes', 'hours'],
+  duration: ['duration', 'listeninglength', 'runtime', 'audiolength', 'audiolengthmin', 'audioduration', 'lengthinminutes', 'minutes', 'hours'],
   publisher: ['publisher', 'publishername', 'imprint', 'publishers'],
-  published: ['yearpublished', 'publicationdate', 'published', 'pubdate', 'datepublished', 'publicationyear', 'editionyear', 'releasedate', 'year'],
+  published: ['yearpublished', 'editionpublished', 'publicationdate', 'published', 'pubdate', 'datepublished', 'publicationyear', 'editionyear', 'releasedate', 'year'],
   firstPublished: ['originalpublicationyear', 'firstpublished', 'originalyear', 'originalpublicationdate', 'firstpublicationyear', 'yearfirstpublished'],
   language: ['language', 'lang', 'languages'],
   genres: ['genres', 'genre', 'categories', 'category', 'subjects', 'subject'],
-  status: ['exclusiveshelf', 'readstatus', 'status', 'readingstatus', 'shelf', 'state', 'progress', 'readstate', 'list'],
+  status: ['exclusiveshelf', 'readstatus', 'status', 'readingstatus', 'shelf', 'state', 'progress', 'list'],
   rating: ['myrating', 'rating', 'starrating', 'stars', 'yourrating', 'score', 'userrating', 'myscore'],
   review: ['myreview', 'review', 'reviews', 'reviewtext', 'comment', 'comments'],
   notes: ['privatenotes', 'notes', 'note', 'mynotes', 'personalnotes'],
@@ -145,6 +157,10 @@ const SYNONYMS: Record<Exclude<FieldId, 'ignore'>, string[]> = {
   favorite: ['favorite', 'favourite', 'favorites', 'favourites', 'isfavorite'],
   moods: ['moods', 'mood', 'vibes', 'feel'],
   pace: ['pace', 'pacing', 'readingpace'],
+  // Folio's full export has a row per read; these describe that one read.
+  readState: ['readstate'],
+  readRating: ['readrating'],
+  readNotes: ['readnotes'],
 }
 
 const DATE_RE = /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|^\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}/
@@ -224,14 +240,30 @@ export function detectSource(headers: string[]): string {
 
 // ── 3. Values ──────────────────────────────────────────────────────────────
 
-const STATUS_RULES: [RegExp, Status][] = [
-  [/did.?not.?finish|^dnf$|abandon|gave.?up|quit|stopped|unfinished/i, 'dnf'],
-  [/pause|on.?hold|hiatus|later/i, 'paused'],
-  [/currently|reading now|in.?progress|^reading$|^started$|^current/i, 'reading'],
-  [/to.?read|want|wish|tbr|plan|queue|up.?next|interested|^unread$|not.?started/i, 'want'],
-  [/^read$|finished|complete|done|^yes$/i, 'read'],
+/**
+ * Statuses are matched on whole words, so a shelf called "antiquity" isn't taken for
+ * "quit", nor "current-affairs" for "currently reading". `is` must be the whole value;
+ * `has` may sit among other words ("to-read-2025", "dnf-pile").
+ */
+const STATUS_RULES: { is: string[]; has: string[]; status: Status }[] = [
+  { status: 'dnf', is: ['stopped', 'quit'], has: ['did not finish', 'didnt finish', 'dnf', 'abandoned', 'abandon', 'gave up', 'unfinished', 'not finished', 'never finished'] },
+  { status: 'paused', is: ['later', 'read later'], has: ['paused', 'pause', 'on hold', 'onhold', 'hiatus'] },
+  { status: 'reading', is: ['reading', 'started', 'current', 'reading now', 'now reading', 'in progress'], has: ['currently reading', 'currently'] },
+  { status: 'want', is: ['want', 'wish', 'unread', 'not started', 'plan', 'planned', 'queue', 'queued', 'up next', 'interested'],
+    has: ['to read', 'toread', 'tbr', 'want to', 'wishlist', 'wish list', 'plan to read'] },
+  { status: 'read', is: ['read', 'yes', 'done', 'complete', 'have read', 'already read'], has: ['finished', 'completed'] },
 ]
-export const guessStatus = (v: string): Status | undefined => STATUS_RULES.find(([re]) => re.test(v.trim()))?.[1]
+export const guessStatus = (v: string): Status | undefined => {
+  const words = v.toLowerCase().replace(/[’']/g, '').split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+  const all = ` ${words.join(' ')} `
+  return STATUS_RULES.find((r) => r.is.includes(words.join(' ')) || r.has.some((p) => all.includes(` ${p} `)))?.status
+}
+
+/** One read's own state ("finished", "dnf"…), from Folio's full export or similar. */
+const readStateOf = (v: string): ReadState | undefined => {
+  const s = guessStatus(v)
+  return s === 'read' ? 'finished' : s === 'want' ? undefined : s
+}
 
 const FORMAT_RULES: [RegExp, Format][] = [
   [/audio|audible|mp3|cd|listen/i, 'audiobook'],
@@ -284,14 +316,24 @@ function parseDate(v: string, order: ValueMaps['dateOrder']): string | undefined
   if (m) return [m[1], m[2].padStart(2, '0'), m[3]?.padStart(2, '0')].filter(Boolean).join('-')
   m = t.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/)
   if (m) {
-    const [a, b, y] = [m[1], m[2], m[3].length === 2 ? '20' + m[3] : m[3]]
+    const [a, b, y] = [m[1], m[2], m[3].length === 2 ? fullYear(+m[3]) : m[3]]
     const [mo, d] = order === 'dmy' ? [b, a] : [a, b]
     return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`
   }
   m = t.match(/^(\d{4})$/)
   if (m) return m[1]
-  const parsed = Date.parse(t) // "March 4, 2021"
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString().slice(0, 10) : undefined
+  // "March 4, 2021" parses as local midnight: read it back on the local calendar, not UTC's.
+  const parsed = Date.parse(t)
+  return Number.isFinite(parsed) ? localIso(new Date(parsed)) : undefined
+}
+
+/** Midday on that date where the reader is, so it's the same day on their calendar (even at UTC+14). */
+const localNoon = (d: string) => { const [y, m, day] = d.split('-').map(Number); return new Date(y, m - 1, day, 12).toISOString() }
+
+/** "12/31/99" is 1999, "03/04/21" is 2021: two-digit years up to next year are this century. */
+function fullYear(yy: number): string {
+  const now = new Date().getFullYear() % 100
+  return String(yy > now + 1 ? 1900 + yy : 2000 + yy)
 }
 
 /** Fix casing only when the source clearly didn't care (all lower or all caps). */
@@ -333,6 +375,21 @@ export interface PreviewBook {
   reads: number
 }
 
+// Edition notes Goodreads and others put in brackets after a title: not a series.
+const NOT_SERIES = /\b(edition|ed\.|unabridged|abridged|illustrated|annotated|anniversary|reprint|revised|deluxe|paperback|hardcover|hardback|kindle|ebook|audiobook|audio|large print|boxed set|translated|translation|movie tie-in|classics?)\b/i
+
+/**
+ * Series often rides along in the title: "The Fellowship of the Ring (The Lord of the Rings, #1)",
+ * "Catching Fire (The Hunger Games #2)", or without a number, "Dune Messiah (Dune Chronicles)".
+ */
+export function splitSeries(title: string): { title: string; series?: string; seriesIndex?: number } {
+  const m = title.match(/\s*\(([^()]+?)(?:,?\s*#\s*(\d+(?:\.\d+)?)(?:\s*[-–]\s*\d+(?:\.\d+)?)?)?\)\s*$/)
+  if (!m || m.index == null || m.index === 0) return { title }
+  const series = m[1].trim()
+  if (!m[2] && (NOT_SERIES.test(series) || /"|:\/\//.test(series))) return { title }
+  return { title: title.slice(0, m.index).trim(), series, seriesIndex: m[2] != null ? parseFloat(m[2]) : undefined }
+}
+
 export function buildImport(
   rows: string[][],
   cols: ColumnGuess[],
@@ -344,6 +401,10 @@ export function buildImport(
   const one = (r: string[], f: FieldId) => { const c = by(f)[0]; return c ? (r[c.index] ?? '').trim() : '' }
   const many = (r: string[], f: FieldId) => by(f).map((c) => (r[c.index] ?? '').trim()).filter(Boolean)
   const date = (v: string) => parseDate(v, values.dateOrder)
+  const stars = (v: string) => {
+    const n = parseFloat(v)
+    return n > 0 ? Math.min(5, Math.max(0.5, Math.round((n / values.ratingDivisor) * 2) / 2)) : undefined
+  }
 
   // Index the catalogue so each row is compared with a handful of plausible
   // books (same ISBN, or a title starting the same way) rather than all of them.
@@ -367,16 +428,134 @@ export function buildImport(
   const problems: string[] = []
   let added = 0, matched = 0, skipped = 0
 
-  const list = opts.limit ? rows.slice(0, opts.limit) : rows
-  list.forEach((r, rowIdx) => {
-    let title = one(r, 'title')
-    if (!title) { if (r.some((c) => c.trim())) problems.push(`Row ${rowIdx + 2}: no title, skipped`); return }
+  /** The edition a row describes (format, ISBN, pages…). */
+  const editionOf = (r: string[]) => {
+    const isbns = [one(r, 'isbn13'), one(r, 'isbn10'), one(r, 'isbn')].map((v) => cleanIsbn(v))
+    const rawIsbn = isbns.find(Boolean)
+    const isbn13 = rawIsbn?.length === 13 ? rawIsbn : rawIsbn ? isbn10to13(rawIsbn) : undefined
+    const isbn10 = [isbns[1], isbns[2], isbns[0]].find((i) => i?.length === 10)
+    const asin = one(r, 'asin').toUpperCase() || undefined
+    const fmtRaw = one(r, 'format')
+    const format: Format = (fmtRaw && values.format[fmtRaw]) || (asin && !isbn13 ? 'ebook' : 'paperback')
+    const durRaw = one(r, 'duration')
+    const durationMin = durRaw ? (/^\d+(\.\d+)?$/.test(durRaw) && /hour/i.test(by('duration')[0]?.header ?? '') ? Math.round(+durRaw * 60) : parseDuration(durRaw)) : undefined
+    const pages = parseInt(one(r, 'pages'), 10) || undefined
+    return { isbn13, isbn10, asin, format, durationMin, pages }
+  }
+  const newEdition = (r: string[], workId: string, f: ReturnType<typeof editionOf>): Edition => {
+    const narrators = many(r, 'narrators').flatMap(splitAuthors)
+    const translators = many(r, 'translators').flatMap(splitAuthors)
+    for (const c of many(r, 'contributors')) {
+      for (const part of c.split(/\s*,\s*(?![^()]*\))/)) {
+        const m = part.match(/^(.*?)\s*\(([^)]+)\)\s*$/)
+        const role = m?.[2].toLowerCase() ?? ''
+        const name = tidy((m ? m[1] : part).trim(), nameCase)
+        if (!name) continue
+        if (role.includes('narrat') || role.includes('read')) narrators.push(name)
+        else if (role.includes('translat')) translators.push(name)
+      }
+    }
+    const e: Edition = {
+      id: uid(), workId, format: f.format, publisher: one(r, 'publisher') ? tidy(one(r, 'publisher'), titleCase) : undefined,
+      publishedDate: date(one(r, 'published')) ?? (one(r, 'published') || undefined),
+      isbn13: f.isbn13, isbn10: f.isbn10, asin: f.asin, language: one(r, 'language') || undefined,
+      pages: f.format === 'audiobook' ? undefined : f.pages, durationMin: f.format === 'audiobook' ? f.durationMin : undefined,
+      narrators: [...new Set(narrators)], translators: [...new Set(translators)], createdAt: nowIso(),
+      coverUrl: f.isbn13 ? `https://covers.openlibrary.org/b/isbn/${f.isbn13}-L.jpg?default=false` : undefined,
+    }
+    addEdition(e)
+    out.editions.push(e)
+    return e
+  }
 
-    // Series often rides along in the title: "The Fellowship of the Ring (The Lord of the Rings, #1)".
+  const rangesOf = (r: string[]) => {
+    const datesRead = many(r, 'datesRead').join(', ')
+    return datesRead
+      ? datesRead.split(/\s*,\s*/).map((seg) => {
+        const ds = [...seg.matchAll(/\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}/g)].map((m) => date(m[0]))
+        const open = /[-–]\s*$/.test(seg.trim())
+        return ds.length >= 2 ? { start: ds[0], end: ds[1] } : open ? { start: ds[0], end: undefined } : { start: undefined, end: ds[0] }
+      }).filter((x) => x.start || x.end)
+      : []
+  }
+  const statusOf = (r: string[]): Status => {
+    const raw = one(r, 'status')
+    const fromRead = one(r, 'readState') ? readStateOf(one(r, 'readState')) : undefined
+    return (raw && values.status[raw]) ||
+      (fromRead ? (fromRead === 'finished' ? 'read' : fromRead) : undefined) ||
+      (date(one(r, 'dateFinished')) || rangesOf(r).some((x) => x.end) ? 'read' : date(one(r, 'dateStarted')) ? 'reading' : 'want')
+  }
+
+  /** The reads one row describes. */
+  const readsOf = (r: string[], status: Status, rating: number | undefined, entryId: string, editionId: string): Read[] => {
+    const base = { entryId, editionId }
+    const started = date(one(r, 'dateStarted'))
+    const finished = date(one(r, 'dateFinished'))
+    // A row that is one read (Folio's full export) says exactly what that read was.
+    const state = one(r, 'readState') ? readStateOf(one(r, 'readState')) : undefined
+    if (state) {
+      return [{
+        id: uid(), ...base, state, startedOn: started,
+        finishedOn: state === 'finished' || state === 'dnf' ? finished : undefined,
+        rating: by('readRating').length ? stars(one(r, 'readRating')) : state === 'finished' ? rating : undefined,
+        notes: one(r, 'readNotes') || undefined,
+      }]
+    }
+    const addedOn = date(one(r, 'dateAdded'))
+    const ranges = rangesOf(r)
+    // Set-aside (DNF) and paused books end in that state, never as a finished read.
+    const halted = status === 'dnf' || status === 'paused' ? status : undefined
+    const reads: Read[] = []
+    // Explicit ranges first; otherwise one dated read plus undated rereads from the count.
+    if (ranges.length) {
+      ranges.forEach((x, i) => {
+        const last = i === ranges.length - 1
+        const st: ReadState = last && halted ? halted : x.end ? 'finished' : halted ?? 'reading'
+        reads.push({
+          id: uid(), ...base, state: st, startedOn: x.start,
+          // A DNF read's end date is the day it was set aside; a paused one has none.
+          finishedOn: st === 'paused' || st === 'reading' ? undefined : x.end,
+          rating: last && st === 'finished' ? rating : undefined,
+        })
+      })
+    } else if (halted) {
+      reads.push({ id: uid(), ...base, state: halted, startedOn: started ?? (addedOn?.length === 10 ? addedOn : undefined), finishedOn: halted === 'dnf' ? finished : undefined })
+    } else if (status === 'read' || finished) {
+      const count = Math.max(1, parseInt(one(r, 'readCount'), 10) || 1)
+      for (let i = 0; i < count - 1; i++) reads.push({ id: uid(), ...base, state: 'finished' })
+      reads.push({ id: uid(), ...base, state: 'finished', startedOn: started, finishedOn: finished, rating })
+    } else if (status === 'reading') {
+      reads.push({ id: uid(), ...base, state: 'reading', startedOn: started ?? (addedOn?.length === 10 ? addedOn : undefined) })
+    }
+    return reads
+  }
+
+  // Rows for the same book (same ISBN, or same title and author) are one book read
+  // several times: Folio's full export has a row per read. A row-per-book file is unaffected.
+  const list = opts.limit ? rows.slice(0, opts.limit) : rows
+  const groups: { at: number; rows: string[][] }[] = []
+  const groupOf = new Map<string, (typeof groups)[number]>()
+  list.forEach((r, at) => {
+    const title = one(r, 'title')
+    const isbn = title ? editionOf(r).isbn13 : undefined
+    const author = [...many(r, 'authors'), ...many(r, 'authorsLastFirst')][0] ?? ''
+    const keys = [isbn && `isbn:${isbn}`, title && `title:${fold(`${title} ${one(r, 'subtitle')}`)}|${fold(author)}`].filter((k): k is string => !!k)
+    let g = keys.map((k) => groupOf.get(k)).find(Boolean)
+    if (!g) groups.push((g = { at, rows: [] }))
+    g.rows.push(r)
+    for (const k of keys) if (!groupOf.has(k)) groupOf.set(k, g)
+  })
+
+  for (const { at: rowIdx, rows: group } of groups) {
+    const r = group[0]
+    let title = one(r, 'title')
+    if (!title) { if (r.some((c) => c.trim())) problems.push(`Row ${rowIdx + 2}: no title, skipped`); continue }
+
     let series = one(r, 'series') || undefined
     let seriesIndex = parseFloat(one(r, 'seriesIndex')) || undefined
-    const sm = title.match(/\s*\(([^()]+?),?\s*#(\d+(?:\.\d+)?)\)\s*$/)
-    if (sm) { series ??= sm[1].trim(); seriesIndex ??= parseFloat(sm[2]); title = title.slice(0, sm.index).trim() }
+    // A bare "(Something)" only counts as the series when the file has no series column of its own.
+    const sp = splitSeries(title)
+    if (sp.series && (sp.seriesIndex != null || !by('series').length)) { series ??= sp.series; seriesIndex ??= sp.seriesIndex; title = sp.title }
     let subtitle = one(r, 'subtitle') || undefined
     if (!subtitle && title.includes(': ') && !by('subtitle').length) {
       const [main, ...rest] = title.split(': ')
@@ -390,37 +569,23 @@ export function buildImport(
       ...many(r, 'authorsLastFirst').map((a) => { const [l, f] = a.split(/\s*,\s*/); return tidy(f ? `${f} ${l}` : l, nameCase) }),
       ...many(r, 'additionalAuthors').flatMap(splitAuthors),
     ]
-    const narrators = many(r, 'narrators').flatMap(splitAuthors)
-    const translators = many(r, 'translators').flatMap(splitAuthors)
     for (const c of many(r, 'contributors')) {
       for (const part of c.split(/\s*,\s*(?![^()]*\))/)) {
         const m = part.match(/^(.*?)\s*\(([^)]+)\)\s*$/)
         const name = tidy((m ? m[1] : part).trim(), nameCase)
         const role = m?.[2].toLowerCase() ?? ''
-        if (!name) continue
-        if (role.includes('narrat') || role.includes('read')) narrators.push(name)
-        else if (role.includes('translat')) translators.push(name)
-        else if (!role || role.includes('author')) authors.push(name)
+        if (name && (!role || role.includes('author'))) authors.push(name)
       }
     }
     authors = [...new Set(authors)]
     if (!authors.length) authors = ['Unknown']
 
-    const rawIsbn = [one(r, 'isbn13'), one(r, 'isbn10'), one(r, 'isbn')].map((v) => cleanIsbn(v)).find(Boolean)
-    const isbn13 = rawIsbn?.length === 13 ? rawIsbn : rawIsbn ? isbn10to13(rawIsbn) : undefined
-    const isbn10 = rawIsbn?.length === 10 ? rawIsbn : undefined
-    const asin = one(r, 'asin').toUpperCase() || undefined
-    const fmtRaw = one(r, 'format')
-    const format: Format = (fmtRaw && values.format[fmtRaw]) || (asin && !isbn13 ? 'ebook' : 'paperback')
-    const durRaw = one(r, 'duration')
-    const durationMin = durRaw ? (/^\d+(\.\d+)?$/.test(durRaw) && /hour/i.test(by('duration')[0]?.header ?? '') ? Math.round(+durRaw * 60) : parseDuration(durRaw)) : undefined
-    const pages = parseInt(one(r, 'pages'), 10) || undefined
-
+    const ed = editionOf(r)
     const pool = new Set([...(byBucket.get(bucket(title)) ?? [])])
-    const viaIsbn = (isbn13 && workByIsbn.get(isbn13)) || (isbn10 && workByIsbn.get(isbn10))
+    const viaIsbn = (ed.isbn13 && workByIsbn.get(ed.isbn13)) || (ed.isbn10 && workByIsbn.get(ed.isbn10))
     if (viaIsbn) pool.add(viaIsbn)
     const poolWorks = [...pool]
-    const cands = findCandidates({ title, authors, isbn: isbn13 ?? isbn10, asin }, poolWorks, poolWorks.flatMap((w) => editionsByWork.get(w.id) ?? []), 1)
+    const cands = findCandidates({ title, subtitle, authors, isbn: ed.isbn13 ?? ed.isbn10, asin: ed.asin }, poolWorks, poolWorks.flatMap((w) => editionsByWork.get(w.id) ?? []), 1)
     const hit = cands[0] && (cands[0].sameEdition || cands[0].score >= 0.93) ? cands[0] : undefined
     let work: Work
     let edition: Edition | undefined = hit?.sameEdition
@@ -438,35 +603,12 @@ export function buildImport(
     }
 
     const statusRaw = one(r, 'status')
-    const datesRead = many(r, 'datesRead').join(', ')
-    const ranges = datesRead
-      ? datesRead.split(/\s*,\s*/).map((seg) => {
-        const ds = [...seg.matchAll(/\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}/g)].map((m) => date(m[0]))
-        const open = /[-–]\s*$/.test(seg.trim())
-        return ds.length >= 2 ? { start: ds[0], end: ds[1] } : open ? { start: ds[0], end: undefined } : { start: undefined, end: ds[0] }
-      }).filter((x) => x.start || x.end)
-      : []
-    const started = date(one(r, 'dateStarted'))
-    const finished = date(one(r, 'dateFinished'))
-    let status: Status =
-      (statusRaw && values.status[statusRaw]) ||
-      (finished || ranges.some((x) => x.end) ? 'read' : started ? 'reading' : 'want')
+    let status = statusOf(r)
 
-    if (haveEntry.has(work.id)) { skipped++; return }
+    if (haveEntry.has(work.id)) { skipped++; continue }
 
-    if (!edition) edition = hit?.editions.find((e) => e.format === format && (!pages || e.pages === pages))
-    if (!edition) {
-      edition = {
-        id: uid(), workId: work.id, format, publisher: one(r, 'publisher') ? tidy(one(r, 'publisher'), titleCase) : undefined,
-        publishedDate: date(one(r, 'published')) ?? (one(r, 'published') || undefined),
-        isbn13, isbn10, asin, language: one(r, 'language') || undefined,
-        pages: format === 'audiobook' ? undefined : pages, durationMin: format === 'audiobook' ? durationMin : undefined,
-        narrators: [...new Set(narrators)], translators: [...new Set(translators)], createdAt: nowIso(),
-        coverUrl: isbn13 ? `https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg?default=false` : undefined,
-      }
-      addEdition(edition)
-      out.editions.push(edition)
-    }
+    if (!edition) edition = hit?.editions.find((e) => e.format === ed.format && (!ed.pages || e.pages === ed.pages))
+    if (!edition) edition = newEdition(r, work.id, ed)
 
     // Shelves: every shelf/collection becomes a Folio shelf, except ones that are really statuses.
     const shelfIds: string[] = []
@@ -483,8 +625,7 @@ export function buildImport(
       shelfIds.push(s.id)
     }
 
-    const rawRating = parseFloat(one(r, 'rating'))
-    const rating = rawRating > 0 ? Math.min(5, Math.max(0.5, Math.round((rawRating / values.ratingDivisor) * 2) / 2)) : undefined
+    const rating = stars(one(r, 'rating'))
     const addedOn = date(one(r, 'dateAdded'))
     const review = [...many(r, 'review'), ...many(r, 'notes')].join('\n\n').replace(/<br\s*\/?>/gi, '\n').trim() || undefined
     const entry: Entry = {
@@ -493,32 +634,26 @@ export function buildImport(
       tags: [...new Set(many(r, 'tags').flatMap(splitList).map((t) => tidy(t, titleCase)))].slice(0, 50), shelfIds,
       moods: [...new Set(many(r, 'moods').flatMap(splitList).map((m) => m.toLowerCase()).filter((m) => (MOODS as readonly string[]).includes(m)))],
       pace: (['slow', 'medium', 'fast'] as const).find((p) => one(r, 'pace').toLowerCase().startsWith(p)),
-      addedAt: addedOn && addedOn.length === 10 ? addedOn + 'T12:00:00Z' : nowIso(), updatedAt: nowIso(),
+      addedAt: addedOn && addedOn.length === 10 ? localNoon(addedOn) : nowIso(), updatedAt: nowIso(),
     }
     out.entries.push(entry)
     haveEntry.add(work.id)
 
-    // Reads: explicit ranges first; otherwise one dated read plus undated rereads from the count.
-    const reads: Read[] = []
-    if (ranges.length) {
-      ranges.forEach((x, i) => reads.push({
-        id: uid(), entryId: entry.id, editionId: edition!.id, startedOn: x.start, finishedOn: x.end,
-        state: x.end ? 'finished' : status === 'dnf' ? 'dnf' : status === 'paused' ? 'paused' : 'reading',
-        rating: i === ranges.length - 1 && x.end ? rating : undefined,
-      }))
-    } else if (status === 'read' || finished) {
-      const count = Math.max(1, parseInt(one(r, 'readCount'), 10) || 1)
-      for (let i = 0; i < count - 1; i++) reads.push({ id: uid(), entryId: entry.id, editionId: edition.id, state: 'finished' })
-      reads.push({ id: uid(), entryId: entry.id, editionId: edition.id, state: 'finished', startedOn: started, finishedOn: finished, rating })
-    } else if (status === 'reading' || status === 'dnf' || status === 'paused') {
-      reads.push({ id: uid(), entryId: entry.id, editionId: edition.id, state: status === 'reading' ? 'reading' : status, startedOn: started ?? (addedOn?.length === 10 ? addedOn : undefined) })
+    const reads = readsOf(r, status, rating, entry.id, edition.id)
+    // Further rows for this book are further reads, each on the edition its row names.
+    for (const extra of group.slice(1)) {
+      const xe = editionOf(extra)
+      const same = (editionsByWork.get(work.id) ?? []).find((e) =>
+        xe.isbn13 ? e.isbn13 === xe.isbn13 : !e.isbn13 && e.format === xe.format && (!xe.pages || e.pages === xe.pages))
+      const xEdition = same ?? newEdition(extra, work.id, xe)
+      reads.push(...readsOf(extra, statusOf(extra), stars(one(extra, 'rating')), entry.id, xEdition.id))
     }
     // Dates can't run backwards.
     for (const rd of reads) if (rd.startedOn && rd.finishedOn && rd.startedOn.length === 10 && rd.finishedOn.length === 10 && rd.finishedOn < rd.startedOn) rd.startedOn = undefined
     out.reads.push(...reads)
 
     if (preview.length < 5) preview.push({ title: work.title, authors: work.authors, status, format: edition.format, rating, finished: reads.find((x) => x.finishedOn)?.finishedOn, reads: reads.filter((x) => x.state === 'finished').length })
-  })
+  }
   return { data: out, added, matched, skipped, problems, preview }
 }
 
@@ -531,7 +666,7 @@ export function collectKeys(rows: string[][], cols: ColumnGuess[]): { titles: st
   const isbns = new Set<string>()
   for (const r of rows) {
     for (const i of titleCols) {
-      const t = (r[i] ?? '').replace(/\s*\([^()]*#[^()]*\)\s*$/, '').trim()
+      const t = splitSeries((r[i] ?? '').trim()).title
       if (t) titles.add(t)
     }
     for (const i of isbnCols) {

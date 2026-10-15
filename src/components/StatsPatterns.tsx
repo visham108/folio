@@ -5,7 +5,7 @@ import {
   daysByGenre, finishRate, formatMixByYear, genresByYear, goalRace, lengthSpread, monthPeriods, moodProfile,
   publicationDecades, ratingVsLength, readingSpeed, seasonalRhythm, tbrWait, yearPeriods, type Completion,
 } from '../lib/stats'
-import { fmtDuration, plural } from '../lib/util'
+import { fmtDuration, fmtNumber, monthName, plural } from '../lib/util'
 import { useSeries } from '../pages/hooks'
 import { useStore } from '../state/store'
 import { BarList, Columns, HeatTable, Legend, LineChart, MEDIA, Scatter, SimpleColumns } from './Charts'
@@ -36,11 +36,14 @@ function ChartCard({ title, sub, children, table, legend }: {
   )
 }
 
+/** Numbers are shown exactly (1,084, not 1.1K) and nothing is shown as "–", the same in every table. */
+const cellText = (c: string | number) => (typeof c === 'number' ? (c ? fmtNumber(c, 1) : '–') : c === '0' ? '–' : c)
+
 function SimpleTable({ head, rows }: { head: string[]; rows: (string | number)[][] }) {
   return (
     <table className="data-table">
       <thead><tr>{head.map((h) => <th key={h}>{h}</th>)}</tr></thead>
-      <tbody>{rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>)}</tbody>
+      <tbody>{rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j}>{j ? cellText(c) : c}</td>)}</tr>)}</tbody>
     </table>
   )
 }
@@ -82,7 +85,7 @@ function RatingScatter({ items }: { items: Completion[] }) {
   return (
     <ChartCard title="Rating vs length" sub={`One dot per rated book. Length is in pages, with listening counted at ${data.settings.audioPagesPerHour} pages an hour.`}
       legend={media.length > 1 ? <Legend items={media} /> : undefined}
-      table={<SimpleTable head={['Book', 'Length', 'Rating']} rows={[...pts].sort((a, b) => b.y - a.y).map((p) => [p.title, p.medium === 'audio' ? fmtDuration(p.minutes) : `${p.pages} p`, `${p.y}★`])} />}>
+      table={<SimpleTable head={['Book', 'Length', 'Rating']} rows={[...pts].sort((a, b) => b.y - a.y).map((p) => [p.title, p.medium === 'audio' ? fmtDuration(p.minutes) : `${fmtNumber(p.pages)} p`, `${p.y}★`])} />}>
       <Scatter
         points={pts.map((p) => ({ ...p, detail: p.medium === 'audio' ? fmtDuration(p.minutes) : `${p.pages} pages` }))}
         xLabel="Length (page-equivalents)"
@@ -143,7 +146,7 @@ function Moods({ items }: { items: Completion[] }) {
               {(['slow', 'medium', 'fast'] as const).filter((p) => prof.pace[p]).map((p) => <span key={p} className={`pace-${p}`} style={{ flexGrow: prof.pace[p] }} />)}
             </div>
             <div className="legend">
-              {(['slow', 'medium', 'fast'] as const).map((p) => <span key={p}><i className={`sw pace-${p}`} />{cap(p)} <b>{prof.pace[p]}</b></span>)}
+              {(['slow', 'medium', 'fast'] as const).filter((p) => prof.pace[p]).map((p) => <span key={p}><i className={`sw pace-${p}`} />{cap(p)} <b>{prof.pace[p]}</b></span>)}
             </div>
           </>
         ) : <p className="muted small">No pace set yet.</p>}
@@ -159,9 +162,8 @@ export function YearPatterns({ year, items }: { year: number; items: Completion[
   const ys = useMemo(() => all.filter((c) => c.year === year), [all, year])
   const race = useMemo(() => goalRace(all, year, data.settings.yearlyGoal), [all, year, data.settings.yearlyGoal])
   const speed = useMemo(() => readingSpeed(all, data.logs, monthPeriods(year)), [all, data.logs, year])
-  const monthStarts = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
+  const { monthStarts } = race
   const dayLabel = (d: number) => new Date(Date.UTC(year, 0, 1 + d)).toLocaleDateString('en', { month: 'short', day: 'numeric', timeZone: 'UTC' })
-  const ahead = race.done - race.expectedNow
 
   return (
     <>
@@ -173,17 +175,19 @@ export function YearPatterns({ year, items }: { year: number; items: Completion[
         legend={<Legend items={[{ id: 'print', label: 'You' }, { id: 'pace', label: 'Goal pace' }]} />}
         table={<SimpleTable head={['Month', 'Books by month end', 'Goal pace']} rows={monthStarts.map((s, m) => {
           const end = (monthStarts[m + 1] ?? race.days) - 1
-          const you = race.you.filter((p) => p.x <= end).at(-1)?.y
-          return [dayLabel(s).split(' ')[0], you ?? '–', one((data.settings.yearlyGoal * (end + 1)) / race.days)]
+          // Months still to come have no total yet.
+          const you = s > race.lastDay ? '–' : race.you.filter((p) => p.x <= end).at(-1)?.y ?? 0
+          return [monthName(m), you, (data.settings.yearlyGoal * (end + 1)) / race.days]
         })} />}>
-        {race.you.length > 0 && Math.abs(ahead) >= 0.5 && (
-          <div className="stat-inline"><span><b>{one(Math.abs(ahead))}</b>{ahead > 0 ? 'books ahead of pace' : 'books behind pace'}</span></div>
+        {race.you.length > 0 && race.ahead !== 0 && (
+          // Same rounding and wording as the goal card on Today.
+          <div className="stat-inline"><span><b>{Math.abs(race.ahead).toLocaleString()}</b>{`${Math.abs(race.ahead) === 1 ? 'book' : 'books'} ${race.ahead > 0 ? 'ahead of' : 'behind'} pace`}</span></div>
         )}
         <LineChart
           ariaLabel={`Books finished through ${year} compared with goal pace`}
           xMax={race.days - 1}
           xLabel={dayLabel}
-          ticks={[0, 90, 181, 273, race.days - 1]}
+          ticks={[0, monthStarts[3], monthStarts[6], monthStarts[9], race.days - 1]}
           format={one}
           series={[
             { id: 'pace', label: 'Goal pace', color: 'var(--muted)', points: race.pace, reference: true },
@@ -194,11 +198,11 @@ export function YearPatterns({ year, items }: { year: number; items: Completion[
 
       <div className="chart-pair">
         <ChartCard title="Pages per day" sub="Average for each month"
-          table={<SimpleTable head={['Month', 'Pages per day']} rows={speed.map((s) => [s.label, one(s.pagesPerDay)])} />}>
+          table={<SimpleTable head={['Month', 'Pages per day']} rows={speed.map((s) => [s.label, s.pagesPerDay])} />}>
           <SimpleColumns data={speed.map((s) => ({ key: s.key, label: s.label, value: s.pagesPerDay }))} format={one} height={150} ariaLabel="Pages per day by month" />
         </ChartCard>
         <ChartCard title="Listening per week" sub="Average hours for each month"
-          table={<SimpleTable head={['Month', 'Hours per week']} rows={speed.map((s) => [s.label, one(s.hoursPerWeek)])} />}>
+          table={<SimpleTable head={['Month', 'Hours per week']} rows={speed.map((s) => [s.label, s.hoursPerWeek])} />}>
           <SimpleColumns data={speed.map((s) => ({ key: s.key, label: s.label, value: s.hoursPerWeek }))} tone="audio" format={one} unit="h" height={150} ariaLabel="Listening hours per week by month" />
         </ChartCard>
       </div>
@@ -233,7 +237,7 @@ export function AllTimePatterns({ items, years }: { items: Completion[]; years: 
 
       {years.length > 1 && (
         <ChartCard title="Format mix by year" sub="Share of books finished in each format"
-          legend={<Legend items={MEDIA} />}
+          legend={<Legend items={MEDIA.filter((m) => mix.some((x) => x.parts[m.id] > 0))} />}
           table={<SimpleTable head={['Year', 'Print', 'Audio', 'Ebook', 'Books']} rows={mix.map((m) => [m.label, `${Math.round(m.parts.print)}%`, `${Math.round(m.parts.audio)}%`, `${Math.round(m.parts.ebook)}%`, m.total])} />}>
           <Columns data={mix.map((m) => ({ key: m.key, label: m.label, parts: m.parts }))} format={(n) => `${Math.round(n)}%`} showPeak={false} ariaLabel="Share of books by format for each year" />
         </ChartCard>
@@ -241,11 +245,11 @@ export function AllTimePatterns({ items, years }: { items: Completion[]; years: 
 
       <div className="chart-pair">
         <ChartCard title="Pages per day" sub="Average for each year"
-          table={<SimpleTable head={['Year', 'Pages per day']} rows={speed.map((s) => [s.label, one(s.pagesPerDay)])} />}>
+          table={<SimpleTable head={['Year', 'Pages per day']} rows={speed.map((s) => [s.label, s.pagesPerDay])} />}>
           <SimpleColumns data={speed.map((s) => ({ key: s.key, label: s.label, value: s.pagesPerDay }))} format={one} height={150} ariaLabel="Pages per day by year" />
         </ChartCard>
         <ChartCard title="Listening per week" sub="Average hours for each year"
-          table={<SimpleTable head={['Year', 'Hours per week']} rows={speed.map((s) => [s.label, one(s.hoursPerWeek)])} />}>
+          table={<SimpleTable head={['Year', 'Hours per week']} rows={speed.map((s) => [s.label, s.hoursPerWeek])} />}>
           <SimpleColumns data={speed.map((s) => ({ key: s.key, label: s.label, value: s.hoursPerWeek }))} tone="audio" format={one} unit="h" height={150} ariaLabel="Listening hours per week by year" />
         </ChartCard>
       </div>
@@ -257,7 +261,7 @@ export function AllTimePatterns({ items, years }: { items: Completion[]; years: 
       )}
 
       <ChartCard title="Seasonal rhythm" sub={`Average books finished in each month${years.length > 1 ? `, across ${years.length} years` : ''}`}
-        table={<SimpleTable head={['Month', 'Average books']} rows={season.map((s) => [s.label, one(s.value)])} />}>
+        table={<SimpleTable head={['Month', 'Average books']} rows={season.map((s) => [s.label, s.value])} />}>
         <SimpleColumns data={season} format={one} height={150} ariaLabel="Average books finished per calendar month" />
       </ChartCard>
 

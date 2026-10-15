@@ -6,8 +6,18 @@ export const uid = () =>
 export const nowIso = () => new Date().toISOString()
 
 export function today(): string {
-  const d = new Date()
+  return localIso(new Date())
+}
+
+/** yyyy-mm-dd of a moment on the reader's own calendar (toISOString() would give the UTC date). */
+export function localIso(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** The local calendar date `days` before or after `date` (yyyy-mm-dd). */
+export function addDays(date: string, days: number): string {
+  const [y, m, d] = date.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
 }
 
 export function yearOf(date?: string): number | undefined {
@@ -59,6 +69,9 @@ export function compact(n: number): string {
   if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K'
   return String(Math.round(n))
 }
+
+/** Exact figures for tables: 1,084 rather than 1.1K. */
+export const fmtNumber = (n: number, digits = 0) => n.toLocaleString(undefined, { maximumFractionDigits: digits })
 
 export const plural = (n: number, one: string, many = one + 's') => `${n.toLocaleString()} ${n === 1 ? one : many}`
 

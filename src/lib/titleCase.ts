@@ -14,11 +14,16 @@ const SMALL = new Set([
   'as', 'at', 'by', 'in', 'of', 'off', 'on', 'per', 'to', 'up', 'via', 'vs', 'from', 'into', 'onto', 'with', 'over',
 ])
 // Surname particles stay lower case when not the first word of a name.
-const PARTICLES = new Set(['van', 'von', 'der', 'den', 'de', 'du', 'da', 'di', 'del', 'della', 'dos', 'das', 'bin', 'ibn'])
+const PARTICLES = new Set(['van', 'von', 'der', 'den', 'de', 'des', 'du', 'da', 'di', 'del', 'della', 'dos', 'das', 'ten', 'ter', 'bin', 'ibn'])
+// Articles that are only particles after another one: "de la Cruz", "de los Ríos", but "Le Guin".
+const AFTER_PARTICLE = new Set(['la', 'las', 'los', 'le', 'les'])
+// A full stop after these is an abbreviation, not the end of a clause: "Mr. and Mrs. Bridge".
+const ABBREVIATIONS = new Set(['mr', 'mrs', 'ms', 'mx', 'dr', 'st', 'jr', 'sr', 'vs', 'etc', 'prof', 'rev', 'fr', 'mt', 'ft', 'no', 'vol', 'gen', 'col', 'lt', 'capt', 'sgt'])
 const ROMAN = new Set(['ii', 'iii', 'iv', 'vi', 'vii', 'viii', 'ix', 'xi', 'xii', 'xiii', 'xiv', 'xv', 'xvi', 'xvii', 'xviii', 'xix', 'xx'])
 
 const LETTER = /\p{L}/u
 const upperFirst = (s: string) => {
+  if (/^\p{N}/u.test(s)) return s // "21st", "4th", "1990s"
   const i = s.search(LETTER)
   return i < 0 ? s : s.slice(0, i) + s[i].toLocaleUpperCase() + s.slice(i + 1)
 }
@@ -29,24 +34,30 @@ const isDeliberate = (w: string) => !isLower(w) && !isUpper(w) && w.slice(1) !==
 
 type Kind = 'title' | 'name'
 
-function caseWord(word: string, kind: Kind, first: boolean, last: boolean, afterBreak: boolean, allCaps: boolean): string {
+function caseWord(word: string, kind: Kind, first: boolean, last: boolean, afterBreak: boolean, allCaps: boolean, prev: string): string {
   if (!LETTER.test(word)) return word
   if (!allCaps && (isDeliberate(word) || (isUpper(word) && word.replace(/[^\p{L}]/gu, '').length > 1))) return word
   const lower = word.toLocaleLowerCase()
   const bare = lower.replace(/[^\p{L}\p{N}']/gu, '')
 
-  if (ROMAN.has(bare)) return lower.toLocaleUpperCase()
+  // In names only a final suffix is a numeral ("Henry VIII"); "Vi Keeland" and "Xi Jinping" are names.
+  if (ROMAN.has(bare) && (kind === 'title' || (last && !first))) return lower.toLocaleUpperCase()
   if (kind === 'title' && !first && !last && !afterBreak && SMALL.has(bare)) return lower
-  if (kind === 'name' && !first && PARTICLES.has(bare)) return lower
+  if (kind === 'name' && !first && !last && PARTICLES.has(bare)) return lower
+  if (kind === 'name' && !first && !last && AFTER_PARTICLE.has(bare) && PARTICLES.has(prev.toLocaleLowerCase())) return lower
 
   // Capitalise each hyphen-separated part and every letter after a full stop (initials).
   let out = lower.split('-').map(upperFirst).join('-')
   out = out.replace(/\.(\p{L})/gu, (_, c: string) => '.' + c.toLocaleUpperCase())
-  if (kind === 'name') {
-    out = out.replace(/^([OD]')(\p{L})/u, (_, p: string, c: string) => p + c.toLocaleUpperCase()) // O'Brien, D'Angelo
-    out = out.replace(/^Mc(\p{L})(?=\p{L})/u, (_, c: string) => 'Mc' + c.toLocaleUpperCase()) // McCarthy
-  }
+  if (kind === 'name') out = out.replace(/^([OD]')(\p{L})/u, (_, p: string, c: string) => p + c.toLocaleUpperCase()) // O'Brien, D'Angelo
+  // McCarthy, McDonald's (titles too). Not "Mac": that would give "MacHine".
+  out = out.replace(/^Mc(\p{L})(?=\p{L})/u, (_, c: string) => 'Mc' + c.toLocaleUpperCase())
   return out
+}
+
+const isAbbreviation = (w: string) => {
+  const b = w.toLocaleLowerCase().replace(/^[^\p{L}]+/u, '')
+  return /^(\p{L}\.)+$/u.test(b) || ABBREVIATIONS.has(b.slice(0, -1))
 }
 
 function convert(text: string, kind: Kind): string {
@@ -57,9 +68,9 @@ function convert(text: string, kind: Kind): string {
   return words
     .map((w, i) => {
       const prev = words[i - 1] ?? ''
-      // A new clause after ":", "—", "?" or "!" starts with a capital.
-      const afterBreak = /[:—–?!.]$/.test(prev) || prev === '-'
-      return caseWord(w, kind, i === 0, i === words.length - 1, afterBreak, allCaps)
+      // A new clause after ":", "—", "?", "!" or a full stop (not "Mr." or an initial) starts with a capital.
+      const afterBreak = /[:—–?!]$/.test(prev) || (prev.endsWith('.') && !isAbbreviation(prev)) || prev === '-'
+      return caseWord(w, kind, i === 0, i === words.length - 1, afterBreak, allCaps, prev.replace(/[^\p{L}]/gu, ''))
     })
     .join(' ')
 }

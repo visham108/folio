@@ -1,6 +1,6 @@
 import type { Edition, Entry, LogPoint, Medium, Read, Settings, Work } from './types'
 import { mediumOf } from './types'
-import { daysBetween, yearOf } from './util'
+import { addDays, daysBetween, plural, today, yearOf } from './util'
 
 /** One finished (or abandoned) pass through a book, enriched for stats. */
 export interface Completion {
@@ -9,7 +9,8 @@ export interface Completion {
   work: Work
   edition?: Edition
   medium: Medium
-  year: number
+  /** Missing for books marked read without a date: counted in all-time totals, not in any year. */
+  year?: number
   month?: number // 0-11
   pages: number // print/ebook pages
   minutes: number // audio minutes
@@ -45,7 +46,6 @@ export function completions(
     rs.sort((a, b) => (a.finishedOn ?? '').localeCompare(b.finishedOn ?? ''))
     rs.forEach((read, i) => {
       const year = yearOf(read.finishedOn)
-      if (!year) return
       const edition = lk.editions.get(read.editionId ?? entry.editionId ?? '')
       const medium = mediumOf(edition?.format)
       const m = read.finishedOn && read.finishedOn.length >= 7 ? parseInt(read.finishedOn.slice(5, 7), 10) - 1 : undefined
@@ -60,6 +60,17 @@ export function completions(
     })
   }
   return out
+}
+
+/** A round axis maximum at or above `v`. */
+export function niceMax(v: number): number {
+  // Below 10, an even maximum keeps the half-way gridline on a whole number (3 → 4, not 1.5).
+  if (v <= 10) return Math.max(2, Math.ceil(v / 2) * 2)
+  const p = Math.pow(10, Math.floor(Math.log10(v)))
+  const n = v / p
+  // Steps chosen so the half-way gridline is also a round number.
+  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 3 ? 3 : n <= 4 ? 4 : n <= 5 ? 5 : n <= 6 ? 6 : n <= 8 ? 8 : 10
+  return step * p
 }
 
 export const pageEquivalent = (c: { pages: number; minutes: number }, s: Settings) =>
@@ -136,8 +147,11 @@ export function summarize(items: Completion[], year: number): YearSummary {
 }
 
 export function yearsWithData(items: Completion[]): number[] {
-  return [...new Set(items.map((c) => c.year))].sort((a, b) => a - b)
+  return [...new Set(items.map((c) => c.year).filter((y): y is number => y != null))].sort((a, b) => a - b)
 }
+
+/** Finished reads with no finish date (often imported from Goodreads without "Date Read"). */
+export const undated = (items: Completion[]) => items.filter((c) => c.year == null)
 
 /** Daily activity (page-equivalents) for a heatmap. */
 export function dailyActivity(logs: LogPoint[], items: Completion[], year: number, s: Settings): Map<string, number> {
@@ -165,10 +179,9 @@ export function streak(logs: LogPoint[]): { current: number; best: number } {
     prev = d
   }
   const last = days[days.length - 1]
-  const t = new Date()
-  const todayIso = t.toISOString().slice(0, 10)
-  const yest = new Date(t.getTime() - 86400000).toISOString().slice(0, 10)
-  return { current: last === todayIso || last === yest ? run : 0, best }
+  // Logs are stamped with the reader's local date, so compare with the local today.
+  const t = today()
+  return { current: last === t || last === addDays(t, -1) ? run : 0, best }
 }
 
 // ── Deeper patterns ───────────────────────────────────────────────────────────
@@ -177,25 +190,52 @@ const DAY = 86400000
 const isoDay = (s?: string) => (s && s.length === 10 ? Date.parse(s + 'T12:00:00Z') : NaN)
 const yearOfDate = (s?: string) => (s ? parseInt(s.slice(0, 4), 10) : NaN)
 
+const daysIn = (year: number) => (Date.UTC(year + 1, 0, 1) - Date.UTC(year, 0, 1)) / DAY
+/** Start of the reader's local today, as a UTC timestamp on the same calendar date. */
+const todayStart = (now = new Date()) => Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+/** 0-based day of the year for the reader's local today. */
+const localDayOfYear = (now = new Date()) => (todayStart(now) - Date.UTC(now.getFullYear(), 0, 1)) / DAY
+
+/**
+ * Where you stand against a yearly goal, counting today as a reading day.
+ * Shared by Today and Stats so both say the same thing: `ahead` is a whole
+ * number of books (negative when behind) and `text` is ready to show.
+ */
+export function goalPace(done: number, goal: number, year: number, now = new Date()) {
+  const days = daysIn(year)
+  const cur = now.getFullYear()
+  const elapsed = cur === year ? localDayOfYear(now) + 1 : cur > year ? days : 0
+  const expected = goal > 0 ? (goal * elapsed) / days : 0
+  const ahead = Math.round(done - expected)
+  const text = goal > 0 && done >= goal ? 'Goal reached ✦'
+    : ahead > 0 ? `${plural(ahead, 'book')} ahead of pace`
+      : ahead < 0 ? `${plural(-ahead, 'book')} behind pace`
+        : 'Right on pace'
+  return { expected, ahead, text }
+}
+
 /** Cumulative books finished through the year, against the steady pace a goal needs. */
-export function goalRace(items: Completion[], year: number, goal: number) {
+export function goalRace(items: Completion[], year: number, goal: number, now = new Date()) {
   const start = Date.UTC(year, 0, 1)
-  const days = (Date.UTC(year + 1, 0, 1) - start) / DAY
-  const now = new Date()
-  const lastDay = now.getUTCFullYear() === year ? Math.floor((Date.now() - start) / DAY) : now.getUTCFullYear() > year ? days - 1 : -1
+  const days = daysIn(year)
+  const cur = now.getFullYear()
+  const lastDay = cur === year ? localDayOfYear(now) : cur > year ? days - 1 : -1
   const perDay = new Array(days).fill(0)
   for (const c of items) {
     if (c.year !== year) continue
     const t = isoDay(c.read.finishedOn)
     const d = Number.isFinite(t) ? Math.floor((t - start) / DAY) : c.month != null ? Math.floor(((Date.UTC(year, c.month + 1, 1) - start) / DAY) - 1) : days - 1
-    perDay[Math.min(days - 1, Math.max(0, d))]++
+    // Month-only dates land on the month's last day; never past today, so the line reaches the total.
+    perDay[Math.min(lastDay >= 0 ? lastDay : days - 1, days - 1, Math.max(0, d))]++
   }
   const you: { x: number; y: number }[] = []
   let sum = 0
   for (let d = 0; d <= lastDay; d++) { sum += perDay[d]; you.push({ x: d, y: sum }) }
   const pace = [{ x: 0, y: 0 }, { x: days - 1, y: goal }]
-  const expectedNow = lastDay >= 0 ? (goal * (lastDay + 1)) / days : 0
-  return { days, you, pace, done: sum, expectedNow }
+  const p = goalPace(sum, goal, year, now)
+  // Month starts as days into the year (leap years included), for ticks and the table.
+  const monthStarts = Array.from({ length: 12 }, (_, m) => (Date.UTC(year, m, 1) - start) / DAY)
+  return { days, you, pace, done: sum, expectedNow: p.expected, ahead: p.ahead, paceText: p.text, lastDay, monthStarts }
 }
 
 export interface SpeedPoint { key: string; label: string; pagesPerDay: number; hoursPerWeek: number }
@@ -213,18 +253,19 @@ export function readingSpeed(items: Completion[], logs: LogPoint[], periods: { k
       for (const l of pl) { if (l.amount <= 0) continue; if (l.medium === 'audio') minutes += l.amount; else pages += l.amount }
     } else {
       for (const c of items) {
-        const t = isoDay(c.read.finishedOn) || (c.month != null ? Date.UTC(c.year, c.month, 15) : NaN)
+        const t = isoDay(c.read.finishedOn) || (c.month != null && c.year != null ? Date.UTC(c.year, c.month, 15) : NaN)
         if (inP(t)) { pages += c.pages; minutes += c.minutes }
       }
     }
-    const days = Math.max(1, Math.min(p.to, Date.now()) - p.from) / DAY
+    // Whole days: the full period once it's over, otherwise the days so far including today.
+    const days = Math.max(1, Math.round((Math.min(p.to, todayStart() + DAY) - p.from) / DAY))
     return { key: p.key, label: p.label, pagesPerDay: pages / days, hoursPerWeek: (minutes / 60) / (days / 7) }
   })
 }
 
 export const monthPeriods = (year: number) =>
   Array.from({ length: 12 }, (_, m) => ({ key: String(m), label: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m], from: Date.UTC(year, m, 1), to: Date.UTC(year, m + 1, 1) }))
-    .filter((p) => p.from <= Date.now())
+    .filter((p) => p.from <= todayStart())
 
 export const yearPeriods = (years: number[]) =>
   years.map((y) => ({ key: String(y), label: String(y), from: Date.UTC(y, 0, 1), to: Date.UTC(y + 1, 0, 1) }))
