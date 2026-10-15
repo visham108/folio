@@ -80,13 +80,13 @@ export function Home() {
             <div className="kicker">Reading goal</div>
             <div className="goal-line"><b>{yp.done}</b> of {yp.goal} books</div>
             <div className={`goal-pace ${yp.ahead >= 0 ? 'good' : ''}`}>
-              {yp.done >= yp.goal ? 'Goal reached ✦' : yp.ahead > 0 ? `${plural(yp.ahead, 'book')} ahead of pace` : yp.ahead < 0 ? `${plural(-yp.ahead, 'book')} behind pace` : 'Right on pace'}
+              {yp.paceText}
             </div>
           </div>
         </div>
         <div className="mini-stats">
           <div className="mini card"><span className="kicker">Pages</span><b>{compact(sum.pages)}</b></div>
-          <div className="mini card"><span className="kicker">Listening</span><b>{Math.round(sum.minutes / 60)}<small>h</small></b></div>
+          <div className="mini card"><span className="kicker">Listening</span><b>{Math.floor(sum.minutes / 60)}<small>h</small></b></div>
           <div className="mini card"><span className="kicker">Combined</span><b>{compact(sum.items.reduce((s, c) => s + pageEquivalent(c, data.settings), 0))}</b><span className="muted tiny">page-equivalents</span></div>
           <div className="mini card"><span className="kicker"><Flame size={12} /> Streak</span><b>{st.current}<small>d</small></b><span className="muted tiny">best {st.best}d</span></div>
         </div>
@@ -152,7 +152,7 @@ export function Home() {
               <Link key={x.name} to={`/series/${seriesSlug(x.name)}`} className="series-next-card card">
                 <Cover work={x.next!.work} edition={editions.get(store.editionsByWork.get(x.next!.work.id)?.[0]?.id ?? '')} size="sm" />
                 <div>
-                  <span className="kicker">{x.name}{x.next!.index != null ? ` · Book ${x.next!.index}` : ''}</span>
+                  <span className="kicker">{x.name}{x.next!.index != null ? ` · Book\u00a0${x.next!.index}` : ''}</span>
                   <b>{x.next!.work.title}</b>
                   <span className="muted small">{x.read} of {x.books.length} read{x.next!.state === 'none' ? ' · not on your shelves yet' : ''}</span>
                 </div>

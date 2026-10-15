@@ -2,7 +2,7 @@ import { Camera, Link2, X } from 'lucide-react'
 import { nameCase, titleCase } from '../lib/titleCase'
 import { useEffect, useRef, useState } from 'react'
 import { FORMATS, type Edition, type Format } from '../lib/types'
-import { cleanIsbn, fmtDuration, nowIso, parseDuration, uid } from '../lib/util'
+import { cleanIsbn, fmtDuration, isAllowedCoverUrl, nowIso, parseDuration, uid } from '../lib/util'
 import { Cover } from './Cover'
 import { CoverStudio } from './CoverStudio'
 import { Chips, ConfirmSheet, Field, Segmented } from './ui'
@@ -38,23 +38,23 @@ export function EditionFields({ value, onChange, title, authors }: {
         {audio ? (
           <>
             <Field label="Length" hint={!value.durationMin ? 'e.g. 11h 23m. Needed for listening stats' : undefined}>
-              <input className="input" value={dur} placeholder="11h 23m" onChange={(e) => { setDur(e.target.value); set({ durationMin: parseDuration(e.target.value) }) }} />
+              <input className="input" value={dur} placeholder="e.g. 11h 23m" onChange={(e) => { setDur(e.target.value); set({ durationMin: parseDuration(e.target.value) }) }} />
             </Field>
             <Field label="Narrated by"><Chips value={value.narrators} onChange={(narrators) => set({ narrators })} placeholder="Narrator" normalize={nameCase} /></Field>
           </>
         ) : (
           <Field label="Pages" hint={!value.pages ? 'Needed for page stats' : undefined}>
-            <input className="input" inputMode="numeric" value={value.pages ?? ''} placeholder="320" onChange={(e) => set({ pages: parseInt(e.target.value, 10) || undefined })} />
+            <input className="input" inputMode="numeric" value={value.pages ?? ''} placeholder="e.g. 320" onChange={(e) => set({ pages: parseInt(e.target.value, 10) || undefined })} />
           </Field>
         )}
         <Field label={audio ? 'Publisher' : 'Publisher'}>
-          <input className="input" value={value.publisher ?? ''} placeholder={audio ? 'Audible Studios' : 'Penguin'} onChange={(e) => set({ publisher: e.target.value || undefined })} onBlur={(e) => set({ publisher: titleCase(e.target.value) || undefined })} />
+          <input className="input" value={value.publisher ?? ''} placeholder={audio ? 'e.g. Audible Studios' : 'e.g. Penguin'} onChange={(e) => set({ publisher: e.target.value || undefined })} onBlur={(e) => set({ publisher: titleCase(e.target.value) || undefined })} />
         </Field>
         {!more && <button type="button" className="link span-2 more-toggle" onClick={() => setMore(true)}>+ ISBN, date, language, translator…</button>}
         {more && (
           <>
-            <Field label="Published"><input className="input" value={value.publishedDate ?? ''} placeholder="2019 or 2019-06-04" onChange={(e) => set({ publishedDate: e.target.value || undefined })} /></Field>
-            <Field label="Language"><input className="input" value={value.language ?? ''} placeholder="en" onChange={(e) => set({ language: e.target.value || undefined })} /></Field>
+            <Field label="Published"><input className="input" value={value.publishedDate ?? ''} placeholder="e.g. 2019 or 2019-06-04" onChange={(e) => set({ publishedDate: e.target.value || undefined })} /></Field>
+            <Field label="Language"><input className="input" value={value.language ?? ''} placeholder="e.g. en" onChange={(e) => set({ language: e.target.value || undefined })} /></Field>
             <Field label="ISBN" hint={value.isbn13 || value.isbn10 ? undefined : '10 or 13 digits'}>
               <input className="input" inputMode="numeric" value={isbnText} onChange={(e) => {
                 setIsbnText(e.target.value)
@@ -80,17 +80,27 @@ function CoverPicker({ value, title, authors, onChange }: {
 }) {
   const [file, setFile] = useState<File | null>(null)
   const [urlMode, setUrlMode] = useState(false)
+  const [urlError, setUrlError] = useState('')
   const input = useRef<HTMLInputElement>(null)
   return (
     <div className="cover-picker">
-      <Cover work={{ title: title || 'Untitled', authors: authors.length ? authors : [''] }} edition={value} size="lg" />
+      <Cover work={{ title: titleCase(title) || 'Untitled', authors: authors.length ? authors.map(nameCase) : [''] }} edition={value} size="lg" />
       <div className="cover-picker-actions">
         <button type="button" className="btn btn-soft sm" onClick={() => input.current?.click()}><Camera size={14} /> Photo</button>
         <button type="button" className="btn btn-ghost sm" onClick={() => setUrlMode((x) => !x)}><Link2 size={14} /> URL</button>
         {value.coverUrl && <button type="button" className="icon-btn" aria-label="Remove cover" onClick={() => onChange(undefined)}><X size={14} /></button>}
       </div>
       {urlMode && (
-        <input className="input sm" placeholder="https://…" defaultValue={value.coverUrl?.startsWith('http') ? value.coverUrl : ''} onBlur={(e) => e.target.value && onChange(e.target.value.trim())} autoFocus />
+        <>
+          <input className="input sm" placeholder="https://…" aria-label="Cover image link" defaultValue={value.coverUrl?.startsWith('http') ? value.coverUrl : ''} autoFocus
+            onBlur={(e) => {
+              const v = e.target.value.trim()
+              if (!v) return
+              if (isAllowedCoverUrl(v)) { setUrlError(''); onChange(v) }
+              else setUrlError('Use a link from Google Books or Open Library, or take a photo of the cover.')
+            }} />
+          {urlError && <p className="err small">{urlError}</p>}
+        </>
       )}
       <input ref={input} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { setFile(e.target.files?.[0] ?? null); e.target.value = '' }} />
       <CoverStudio

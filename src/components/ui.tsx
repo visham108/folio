@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { Star, X } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { isValidElement, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 // ── Stars ────────────────────────────────────────────────────────────────────
@@ -64,13 +64,17 @@ export function Sheet({
 }: { open: boolean; onClose: () => void; title?: ReactNode; children: ReactNode; wide?: boolean; footer?: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null)
   const id = useId()
+  // Callers often pass a new onClose each render; reading it through a ref keeps focus where you
+  // are typing instead of resetting the dialog on every keystroke.
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
   useEffect(() => {
     if (!open) return
     const prev = document.activeElement as HTMLElement | null
     const onKey = (e: globalThis.KeyboardEvent) => {
       // With a dialog stacked on another, only the one holding focus responds.
       if (!ref.current || (document.activeElement && document.activeElement !== document.body && !ref.current.contains(document.activeElement))) return
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') closeRef.current()
       if (e.key !== 'Tab') return
       // Keep keyboard focus inside the dialog.
       const items = [...ref.current.querySelectorAll<HTMLElement>('button:not(:disabled),input:not([type=hidden]),select,textarea,a[href],[tabindex]:not([tabindex="-1"])')]
@@ -87,7 +91,7 @@ export function Sheet({
       document.body.classList.remove('no-scroll')
       prev?.focus?.()
     }
-  }, [open, onClose])
+  }, [open])
   return createPortal(
     <AnimatePresence>
       {open && (
@@ -155,13 +159,20 @@ export function Ring({ pct, size = 120, stroke = 10, children }: { pct: number; 
 // ── Inputs ───────────────────────────────────────────────────────────────────
 
 export function Field({ label, hint, required, children, className = '' }: { label: string; hint?: ReactNode; required?: boolean; children: ReactNode; className?: string }) {
-  return (
-    <label className={`field ${className}`}>
-      <span className="field-label">{label}{required && <i className="req" aria-label="required">*</i>}</span>
+  // A <label> only suits a single input. Around a group of buttons (toggles, stars, chips) it would
+  // name and click the first button, so those get a labelled group instead.
+  const id = useId()
+  const single = isValidElement(children) && typeof children.type === 'string' && ['input', 'select', 'textarea'].includes(children.type)
+  const inner = (
+    <>
+      <span className="field-label" id={id}>{label}{required && <i className="req" aria-label="required">*</i>}</span>
       {children}
       {hint && <span className="field-hint">{hint}</span>}
-    </label>
+    </>
   )
+  return single
+    ? <label className={`field ${className}`}>{inner}</label>
+    : <div className={`field ${className}`} role="group" aria-labelledby={id}>{inner}</div>
 }
 
 /** Free-text tokens (authors, narrators, genres). Enter or comma commits. */

@@ -1,4 +1,5 @@
 import type { Backend } from './backend'
+import { mergeEntryFields } from './merge'
 import { emptySnapshot, type Snapshot } from './types'
 
 /** On-device storage (IndexedDB). Used before sign-in or when no Supabase project is configured. */
@@ -6,6 +7,8 @@ import { emptySnapshot, type Snapshot } from './types'
 const DB = 'folio'
 const STORE = 'kv'
 const KEY = 'snapshot'
+/** Tells other open tabs that the on-device library changed. */
+export const LOCAL_CHANNEL = 'folio-local'
 
 // One connection for the page's lifetime, so a write can start straight away when the tab closes.
 let dbHandle: IDBDatabase | null = null
@@ -42,50 +45,76 @@ async function idbSet(key: string, value: unknown): Promise<void> {
     tx.commit?.()
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error ?? new Error('Saving on this device failed (is the disk full?)'))
   })
 }
 
+/** Runs fn while holding a lock shared by every tab, so two tabs never interleave a read-modify-write. */
+function withLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
+  return locks ? locks.request('folio-local', fn) : fn()
+}
+
+function normalize(stored?: Partial<Snapshot>): Snapshot {
+  const s = { ...emptySnapshot(), ...(stored ?? {}) }
+  s.settings = { ...emptySnapshot().settings, ...(stored?.settings ?? {}) }
+  return s
+}
+
 type ListKey = 'works' | 'editions' | 'entries' | 'reads' | 'logs' | 'shelves'
+type Op = (s: Snapshot) => void
+interface Pending { op: Op; done: () => void; fail: (e: unknown) => void }
+
+function upsertInto<K extends ListKey>(s: Snapshot, key: K, item: Snapshot[K][number]) {
+  const list = s[key] as { id: string }[]
+  const i = list.findIndex((x) => x.id === (item as { id: string }).id)
+  if (i >= 0) list[i] = item as { id: string }
+  else list.push(item as { id: string })
+}
 
 export function createLocalBackend(): Backend {
+  // This tab's view of the library. Writes are recorded as small changes and applied to
+  // whatever is stored at the time, so changes made in another tab aren't overwritten.
   let snap: Snapshot | null = null
+  let queue: Pending[] = []
+  let pumping: Promise<void> | null = null
 
-  const ensure = async () => {
-    if (!snap) {
-      const stored = await idbGet<Snapshot>(KEY).catch(() => undefined)
-      snap = { ...emptySnapshot(), ...(stored ?? {}) }
-      snap.settings = { ...emptySnapshot().settings, ...(stored?.settings ?? {}) }
-    }
-    return snap
-  }
-  // Save straight away; changes made while a save is running (e.g. dragging a progress
-  // slider) are folded into one follow-up save.
-  let writing = false
-  let dirty = false
-  const persist = () => {
-    dirty = true
-    if (writing) return
-    writing = true
-    void (async () => {
-      while (dirty && snap) {
-        dirty = false
-        await idbSet(KEY, snap).catch(console.error)
+  const ensure = async () => (snap ??= normalize(await idbGet<Snapshot>(KEY).catch(() => undefined)))
+
+  const pump = () => {
+    pumping ??= (async () => {
+      while (queue.length) {
+        const batch = queue
+        queue = []
+        try {
+          await withLock(async () => {
+            const stored = normalize(await idbGet<Snapshot>(KEY))
+            for (const p of batch) p.op(stored)
+            await idbSet(KEY, stored)
+          })
+          batch.forEach((p) => p.done())
+          try { new BroadcastChannel(LOCAL_CHANNEL).postMessage('changed') } catch { /* not supported */ }
+        } catch (e) {
+          batch.forEach((p) => p.fail(e))
+        }
       }
-      writing = false
+      pumping = null
     })()
+    return pumping
   }
-  const upsert = async <K extends ListKey>(key: K, item: Snapshot[K][number]) => {
-    const s = await ensure()
-    const list = s[key] as { id: string }[]
-    const i = list.findIndex((x) => x.id === (item as { id: string }).id)
-    if (i >= 0) list[i] = item as { id: string }
-    else list.push(item as { id: string })
-    persist()
+
+  /** Applies a change here straight away and saves it; resolves once it's on disk. */
+  const apply = async (op: Op) => {
+    op(await ensure())
+    return new Promise<void>((done, fail) => {
+      queue.push({ op, done, fail })
+      void pump()
+    })
   }
-  const remove = async (key: ListKey, id: string) => {
-    const s = await ensure()
-    ;(s[key] as { id: string }[]) = (s[key] as { id: string }[]).filter((x) => x.id !== id)
-    persist()
+
+  const upsert = <K extends ListKey>(key: K, item: Snapshot[K][number]) => {
+    const copy = structuredClone(item)
+    return apply((s) => upsertInto(s, key, structuredClone(copy)))
   }
 
   return {
@@ -94,57 +123,67 @@ export function createLocalBackend(): Backend {
     // On this device everything is yours to edit.
     isAdmin: true,
     async loadAll() {
-      return structuredClone(await ensure())
+      // Pick up anything another tab saved, after our own pending writes land.
+      while (pumping) await pumping
+      snap = normalize(await idbGet<Snapshot>(KEY).catch(() => undefined))
+      return structuredClone(snap)
     },
     saveWork: (w) => upsert('works', w),
     saveEdition: (e) => upsert('editions', e),
     saveEntry: (e) => upsert('entries', e),
-    deleteEntry: async (id) => {
-      const s = await ensure()
-      const readIds = new Set(s.reads.filter((r) => r.entryId === id).map((r) => r.id))
-      s.reads = s.reads.filter((r) => !readIds.has(r.id))
-      s.logs = s.logs.filter((l) => !readIds.has(l.readId))
-      await remove('entries', id)
-    },
+    deleteEntry: (id) =>
+      apply((s) => {
+        const readIds = new Set(s.reads.filter((r) => r.entryId === id).map((r) => r.id))
+        s.entries = s.entries.filter((e) => e.id !== id)
+        s.reads = s.reads.filter((r) => !readIds.has(r.id))
+        s.logs = s.logs.filter((l) => !readIds.has(l.readId))
+      }),
     saveRead: (r) => upsert('reads', r),
-    deleteRead: async (id) => {
-      const s = await ensure()
-      s.logs = s.logs.filter((l) => l.readId !== id)
-      await remove('reads', id)
-    },
+    deleteRead: (id) =>
+      apply((s) => {
+        s.reads = s.reads.filter((r) => r.id !== id)
+        s.logs = s.logs.filter((l) => l.readId !== id)
+      }),
     saveLog: (l) => upsert('logs', l),
-    deleteEdition: async (id) => {
-      const s = await ensure()
-      s.entries = s.entries.map((e) => (e.editionId === id ? { ...e, editionId: undefined } : e))
-      s.reads = s.reads.map((r) => (r.editionId === id ? { ...r, editionId: undefined } : r))
-      await remove('editions', id)
-    },
-    async mergeWorks(fromId, intoId) {
-      const s = await ensure()
-      s.editions = s.editions.map((e) => (e.workId === fromId ? { ...e, workId: intoId } : e))
-      const keep = s.entries.find((e) => e.workId === intoId)
-      const moving = s.entries.find((e) => e.workId === fromId)
-      if (moving && keep) {
-        s.reads = s.reads.map((r) => (r.entryId === moving.id ? { ...r, entryId: keep.id } : r))
-        s.entries = s.entries.filter((e) => e.id !== moving.id)
-      } else if (moving) moving.workId = intoId
-      s.works = s.works.filter((w) => w.id !== fromId)
-      persist()
-    },
+    deleteEdition: (id) =>
+      apply((s) => {
+        s.editions = s.editions.filter((e) => e.id !== id)
+        s.entries = s.entries.map((e) => (e.editionId === id ? { ...e, editionId: undefined } : e))
+        s.reads = s.reads.map((r) => (r.editionId === id ? { ...r, editionId: undefined } : r))
+      }),
+    mergeWorks: (fromId, intoId) =>
+      apply((s) => {
+        s.editions = s.editions.map((e) => (e.workId === fromId ? { ...e, workId: intoId } : e))
+        const keep = s.entries.find((e) => e.workId === intoId)
+        const moving = s.entries.find((e) => e.workId === fromId)
+        if (moving && keep) {
+          // Keep what you'd recorded on the duplicate: rating, review, tags, shelves…
+          Object.assign(keep, mergeEntryFields(keep, moving))
+          s.reads = s.reads.map((r) => (r.entryId === moving.id ? { ...r, entryId: keep.id } : r))
+          s.entries = s.entries.filter((e) => e.id !== moving.id)
+        } else if (moving) moving.workId = intoId
+        s.works = s.works.filter((w) => w.id !== fromId)
+      }),
     async history() {
       return []
     },
     saveShelf: (x) => upsert('shelves', x),
-    deleteShelf: (id) => remove('shelves', id),
-    async saveSettings(settings) {
-      const s = await ensure()
-      s.settings = settings
-      persist()
+    deleteShelf: (id) =>
+      apply((s) => {
+        s.shelves = s.shelves.filter((x) => x.id !== id)
+        s.entries = s.entries.map((e) => (e.shelfIds.includes(id) ? { ...e, shelfIds: e.shelfIds.filter((x) => x !== id) } : e))
+      }),
+    saveSettings: (settings) => {
+      const copy = structuredClone(settings)
+      return apply((s) => { s.settings = structuredClone(copy) })
     },
     async saveMany(part) {
-      for (const key of ['works', 'editions', 'entries', 'reads', 'logs', 'shelves'] as ListKey[]) {
-        for (const item of part[key] ?? []) await upsert(key, item as never)
-      }
+      const copy = structuredClone(part)
+      await apply((s) => {
+        for (const key of ['works', 'editions', 'shelves', 'entries', 'reads', 'logs'] as ListKey[]) {
+          for (const item of copy[key] ?? []) upsertInto(s, key, structuredClone(item) as never)
+        }
+      })
     },
     async catalogueFor() {
       return { works: [], editions: [] }
@@ -155,6 +194,9 @@ export function createLocalBackend(): Backend {
     },
     async fetchWork() {
       return null
+    },
+    async sharedWorks() {
+      return []
     },
     async searchCatalog() {
       // On-device there is no shared catalogue beyond the user's own books,
@@ -170,8 +212,12 @@ export function createLocalBackend(): Backend {
       })
     },
     async wipe() {
+      queue.forEach((p) => p.done())
+      queue = []
+      while (pumping) await pumping
       snap = emptySnapshot()
-      await idbSet(KEY, snap)
+      await withLock(() => idbSet(KEY, snap))
+      try { new BroadcastChannel(LOCAL_CHANNEL).postMessage('changed') } catch { /* not supported */ }
     },
   }
 }

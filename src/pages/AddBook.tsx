@@ -10,7 +10,7 @@ import { Scanner } from '../components/Scanner'
 import { Chips, Field, Segmented, Stars } from '../components/ui'
 import { searchBooks, type LookupResult } from '../lib/lookup'
 import { confidenceOf, findCandidates, type MatchCandidate } from '../lib/match'
-import type { Edition, Status, Work } from '../lib/types'
+import { STATUSES, type Edition, type Status, type Work } from '../lib/types'
 import { cleanIsbn, today } from '../lib/util'
 import { useStore } from '../state/store'
 import { useToast } from '../state/toast'
@@ -79,6 +79,7 @@ function SearchStep({ onPick, onManual, onOpen }: {
   const [scan, setScan] = useState(false)
   const [photo, setPhoto] = useState<File | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [searchFailed, setSearchFailed] = useState(false)
 
   useEffect(() => {
     const query = q.trim()
@@ -86,11 +87,13 @@ function SearchStep({ onPick, onManual, onOpen }: {
     const ctl = new AbortController()
     setLoading(true)
     const t = setTimeout(async () => {
+      let failed = false
       const [r, c] = await Promise.all([
-        searchBooks(query, ctl.signal).catch(() => []),
+        searchBooks(query, ctl.signal).catch(() => { failed = true; return [] }),
         store.backend?.searchCatalog(query, []).catch(() => ({ works: [], editions: [] })) ?? { works: [], editions: [] },
       ])
       if (ctl.signal.aborted) return
+      setSearchFailed(failed && !r.length)
       setResults(r)
       setRemote(c)
       setLoading(false)
@@ -126,7 +129,7 @@ function SearchStep({ onPick, onManual, onOpen }: {
       </label>
       <div className="add-modes">
         <button className="mode" onClick={() => setScan(true)}><ScanLine size={20} /><b>Scan barcode</b><span>Fastest for print books</span></button>
-        <button className="mode" onClick={() => fileRef.current?.click()}><Camera size={20} /><b>Photograph the cover</b><span>We’ll tidy the photo up</span></button>
+        <button className="mode" onClick={() => fileRef.current?.click()}><Camera size={20} /><b>Photograph the cover</b><span>We’ll tidy up the&nbsp;photo</span></button>
         <button className="mode" onClick={() => onManual({ title: cleanIsbn(q) ? '' : titleCase(q) })}><PenLine size={20} /><b>Enter it yourself</b><span>For anything not listed</span></button>
       </div>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { setPhoto(e.target.files?.[0] ?? null); e.target.value = '' }} />
@@ -179,7 +182,10 @@ function SearchStep({ onPick, onManual, onOpen }: {
         </section>
       )}
       {!loading && q.trim().length >= 2 && !results.length && !known.length && (
-        <p className="muted center pad">No results online. <button className="link" onClick={() => onManual({ title: titleCase(q) })}>Add “{q}” yourself</button></p>
+        <p className="muted center pad">
+          {searchFailed ? 'Couldn’t reach the online book search (are you offline?). ' : 'No results online. '}
+          <button className="link" onClick={() => onManual({ title: titleCase(q) })}>Add “{q}” yourself</button>
+        </p>
       )}
 
       <Scanner open={scan} onClose={() => setScan(false)} onIsbn={(isbn) => { setScan(false); setQ(isbn) }} />
@@ -212,6 +218,9 @@ function FormStep({ work, setWork, edition, setEdition, onBack }: {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
   const [remote, setRemote] = useState<{ works: Work[]; editions: Edition[] }>({ works: [], editions: [] })
   const [touched, setTouched] = useState(false)
+  // Kept as typed so "2.5" and "0" can be entered; read as a number on save.
+  const [indexText, setIndexText] = useState(work.seriesIndex != null ? String(work.seriesIndex) : '')
+  const seriesIndex = indexText.trim() === '' ? undefined : Number(indexText.replace(',', '.'))
 
   // Shared catalogue lookups for duplicate detection (debounced).
   useEffect(() => {
@@ -259,7 +268,7 @@ function FormStep({ work, setWork, edition, setEdition, onBack }: {
     const entry = store.addBook({
       work: w ?? {
         title: titleCase(work.title), subtitle: work.subtitle ? titleCase(work.subtitle) : undefined, authors: work.authors, series: work.series ? titleCase(work.series) : undefined,
-        seriesIndex: work.seriesIndex, genres: work.genres, firstPublished: work.firstPublished, description: work.description,
+        seriesIndex: Number.isFinite(seriesIndex) ? seriesIndex : undefined, genres: work.genres, firstPublished: work.firstPublished, description: work.description,
       },
       edition: useExisting ?? edition,
       status,
@@ -267,7 +276,11 @@ function FormStep({ work, setWork, edition, setEdition, onBack }: {
       finishedOn: status === 'read' ? finishedOn || undefined : undefined,
       rating: status === 'read' ? rating : undefined,
     })
-    toast(attach ? `Added as a new edition of ${attach.work.title}` : 'Added to your library')
+    const had = attach ? store.entryByWork.get(attach.work.id) : undefined
+    toast(
+      attach?.sameEdition || useExisting ? (had ? 'Already in your library' : 'Added to your library')
+        : attach ? `Added as a new edition of ${attach.work.title}` : 'Added to your library',
+    )
     nav(`/book/${entry.workId}`)
   }
 
@@ -284,10 +297,16 @@ function FormStep({ work, setWork, edition, setEdition, onBack }: {
           <motion.div className={`match card conf-${confidenceOf(top)}`} initial={{ opacity: 0, y: -8, height: 0 }} animate={{ opacity: 1, y: 0, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
             <Cover work={top.work} edition={top.sameEdition ?? top.editions[0]} size="sm" />
             <div className="match-body">
-              <span className="kicker">{confidenceOf(top) === 'exact' ? 'This exact edition is already here' : confidenceOf(top) === 'strong' ? 'Looks like this book is already in Folio' : 'Is this the same book?'}</span>
+              <span className="kicker">
+                {store.entryByWork.has(top.work.id) ? 'Already on your shelves'
+                  : confidenceOf(top) === 'exact' ? 'This exact edition is already here' : confidenceOf(top) === 'strong' ? 'Looks like this book is already in Folio' : 'Is this the same book?'}
+              </span>
               <b>{top.work.title}</b>
               <span>{top.work.authors.join(', ')} · {top.editions.length} {top.editions.length === 1 ? 'edition' : 'editions'}</span>
-              <span className="muted small">{top.reason}</span>
+              <span className="muted small">
+                {top.reason}
+                {(() => { const mine = store.entryByWork.get(top.work.id); return mine ? ` · on your ${STATUSES.find((x) => x.id === mine.status)?.label} pile` : '' })()}
+              </span>
               <div className="match-actions">
                 <button className="btn btn-primary sm" onClick={() => doAttach(top)}>
                   {top.sameEdition ? 'Use this edition' : 'Add as another edition'}
@@ -318,15 +337,15 @@ function FormStep({ work, setWork, edition, setEdition, onBack }: {
             <h3>The book</h3>
             <div className="form-grid">
               <Field label="Title" required className="span-2" hint={touched && errors.title ? <span className="err">{errors.title}</span> : undefined}>
-                <input className="input" value={work.title} onChange={(e) => setWork({ ...work, title: e.target.value })} onBlur={(e) => setWork({ ...work, title: titleCase(e.target.value) })} placeholder="The Left Hand of Darkness" />
+                <input className="input" value={work.title} onChange={(e) => setWork({ ...work, title: e.target.value })} onBlur={(e) => setWork({ ...work, title: titleCase(e.target.value) })} placeholder="e.g. The Left Hand of Darkness" />
               </Field>
               <Field label="Author(s)" required className="span-2" hint={touched && errors.authors ? <span className="err">{errors.authors}</span> : 'Press Enter after each name'}>
-                <Chips value={work.authors} onChange={(authors) => setWork({ ...work, authors })} normalize={nameCase} placeholder="Ursula K. Le Guin" suggestions={[...new Set(store.data.works.flatMap((w) => w.authors))]} />
+                <Chips value={work.authors} onChange={(authors) => setWork({ ...work, authors })} normalize={nameCase} placeholder="e.g. Ursula K. Le Guin" suggestions={[...new Set(store.data.works.flatMap((w) => w.authors))]} />
               </Field>
               <Field label="Subtitle" className="span-2"><input className="input" value={work.subtitle ?? ''} onChange={(e) => setWork({ ...work, subtitle: e.target.value || undefined })} onBlur={(e) => setWork({ ...work, subtitle: titleCase(e.target.value) || undefined })} /></Field>
               <Field label="Series"><input className="input" value={work.series ?? ''} onChange={(e) => setWork({ ...work, series: e.target.value || undefined })} onBlur={(e) => setWork({ ...work, series: titleCase(e.target.value) || undefined })} /></Field>
-              <Field label="#"><input className="input" inputMode="decimal" value={work.seriesIndex ?? ''} onChange={(e) => setWork({ ...work, seriesIndex: parseFloat(e.target.value) || undefined })} /></Field>
-              <Field label="Genres" className="span-2"><Chips value={work.genres} onChange={(genres) => setWork({ ...work, genres })} normalize={titleCase} placeholder="Fantasy, Memoir…" suggestions={[...new Set(store.data.works.flatMap((w) => w.genres))]} /></Field>
+              <Field label="#"><input className="input" inputMode="decimal" aria-label="Number in series" value={indexText} onChange={(e) => setIndexText(e.target.value)} /></Field>
+              <Field label="Genres" className="span-2"><Chips value={work.genres} onChange={(genres) => setWork({ ...work, genres })} normalize={titleCase} placeholder="e.g. Fantasy, Memoir" suggestions={[...new Set(store.data.works.flatMap((w) => w.genres))]} /></Field>
               <Field label="First published"><input className="input" inputMode="numeric" value={work.firstPublished ?? ''} onChange={(e) => setWork({ ...work, firstPublished: parseInt(e.target.value, 10) || undefined })} /></Field>
             </div>
           </section>
@@ -354,8 +373,8 @@ function FormStep({ work, setWork, edition, setEdition, onBack }: {
           />
           {(status === 'reading' || status === 'read') && (
             <div className="form-grid">
-              <Field label="Started" hint="Optional"><input className="input" type="date" max={today()} value={startedOn} onChange={(e) => setStartedOn(e.target.value)} /></Field>
-              {status === 'read' && <Field label="Finished"><input className="input" type="date" max={today()} min={startedOn || undefined} value={finishedOn} onChange={(e) => setFinishedOn(e.target.value)} /></Field>}
+              <Field label="Started" hint={status === 'reading' ? 'Blank means today' : 'Optional'}><input className="input" type="date" max={today()} value={startedOn} onChange={(e) => setStartedOn(e.target.value)} /></Field>
+              {status === 'read' && <Field label="Finished" hint="Optional, but needed for yearly stats"><input className="input" type="date" max={today()} min={startedOn || undefined} value={finishedOn} onChange={(e) => setFinishedOn(e.target.value)} /></Field>}
             </div>
           )}
           {dateError && <p className="err small">{dateError}</p>}

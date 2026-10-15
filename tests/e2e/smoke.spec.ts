@@ -132,7 +132,8 @@ test('smart shelves, series, moods and export', async ({ page }) => {
   await page.locator('.series-eyebrow').click()
   await expect(page.locator('h1.display')).toHaveText('Dune')
   await expect(page.locator('.series-item')).toHaveCount(2)
-  await page.locator('.series-link', { hasText: 'Dune Messiah' }).click()
+  // Moods are for books you've started, so use the first book (already read).
+  await page.locator('.series-link').first().click()
 
   // Moods and pace stick
   await page.getByRole('button', { name: 'Hopeful' }).click()
@@ -172,4 +173,55 @@ test('signing in with an emailed code', async ({ page }) => {
   await page.getByRole('button', { name: 'Different email' }).click()
   await expect(page.getByLabel('Email address')).toHaveValue('reader@example.com')
   expect(errors.filter((e) => !/403/.test(e))).toEqual([])
+})
+
+test('reads, piles and shelves behave', async ({ page }) => {
+  const errors = watchErrors(page)
+  await startOnDevice(page)
+  await page.goto('/#/settings')
+  await page.getByRole('button', { name: /sample library/ }).click()
+
+  // "Log a read" is only saved when you press Add read; cancelling leaves nothing behind.
+  await openLibrary(page, '/want')
+  await page.locator('.tile-link').first().click()
+  await expect(page.locator('.tl')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Log a read' }).click()
+  await page.getByRole('button', { name: 'Close' }).click()
+  await expect(page.locator('.tl')).toHaveCount(0)
+  await expect(page.locator('.status-btn')).toContainText('Want to read')
+  // Logging a finished read moves the book to Read.
+  await page.getByRole('button', { name: 'Log a read' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Log a read' })
+  await dialog.getByRole('radio', { name: 'Finished' }).click()
+  await dialog.getByRole('button', { name: 'Add read' }).click()
+  await expect(page.locator('.tl')).toHaveCount(1)
+  await expect(page.locator('.status-btn')).toContainText('Read')
+  // Deleting it asks first, then puts the book back.
+  await page.locator('.tl-body').first().click()
+  await page.getByRole('button', { name: 'Delete' }).click()
+  await page.locator('.sheet-foot .btn-danger').click()
+  await expect(page.locator('.tl')).toHaveCount(0)
+  await expect(page.locator('.status-btn')).toContainText('Want to read')
+  // The status menu closes with Escape.
+  await page.locator('.status-btn').click()
+  await expect(page.getByRole('menu')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+
+  // Typing a shelf name quickly keeps every letter; shelves can be renamed and deleted.
+  await openLibrary(page)
+  await page.getByRole('button', { name: 'New shelf' }).click()
+  await page.getByLabel('Shelf name').pressSequentially('summer reads 2026', { delay: 5 })
+  await page.getByRole('button', { name: 'Create shelf' }).click()
+  await expect(page.locator('h1.display')).toHaveText('Summer Reads 2026')
+  await page.getByRole('button', { name: 'Edit shelf' }).click()
+  await page.getByLabel('Shelf name').fill('beach books')
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.locator('h1.display')).toHaveText('Beach Books')
+  await page.getByRole('button', { name: 'Edit shelf' }).click()
+  await page.getByRole('button', { name: 'Delete shelf' }).click()
+  await page.locator('.sheet-foot .btn-danger').click()
+  await expect(page.locator('.pile', { hasText: 'Beach Books' })).toHaveCount(0)
+
+  expect(errors).toEqual([])
 })

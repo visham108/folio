@@ -41,14 +41,18 @@ export function buildSeries(
       const state: SeriesBookState = !entry ? 'none' : finished ? 'read' : entry.status === 'read' ? 'read' : entry.status
       return { work: w, index: w.seriesIndex, state, entry }
     })
-    // Same number twice (two catalogue records for one volume): keep the one on your shelves.
-    const byIndex = new Map<string, SeriesBook>()
+    // Same number twice is usually two catalogue records for one volume: show the one(s) on your
+    // shelves, and only one copy of a volume you don't have. Books you have are never hidden.
+    const byIndex = new Map<string, SeriesBook[]>()
     for (const b of books) {
       const k = b.index != null ? String(b.index) : `x-${b.work.id}`
-      const prev = byIndex.get(k)
-      if (!prev || (prev.state === 'none' && b.state !== 'none')) byIndex.set(k, b)
+      byIndex.set(k, [...(byIndex.get(k) ?? []), b])
     }
-    const ordered = [...byIndex.values()].sort((a, b) => (a.index ?? 999) - (b.index ?? 999) || a.work.title.localeCompare(b.work.title))
+    const kept = [...byIndex.values()].flatMap((same) => {
+      const mine = same.filter((b) => b.state !== 'none')
+      return mine.length ? mine : same.slice(0, 1)
+    })
+    const ordered = kept.sort((a, b) => (a.index ?? 999) - (b.index ?? 999) || a.work.title.localeCompare(b.work.title))
     const read = ordered.filter((b) => b.state === 'read').length
     const lastRead = Math.max(-1, ...ordered.map((b, i) => (b.state === 'read' ? i : -1)))
     const next = lastRead >= 0 ? ordered.slice(lastRead + 1).find((b) => b.state === 'none' || b.state === 'want') : undefined

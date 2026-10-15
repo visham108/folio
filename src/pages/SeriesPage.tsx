@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ArrowLeft, Check, Plus } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Cover } from '../components/Cover'
@@ -13,6 +14,8 @@ const STATE_LABEL: Record<string, string> = {
 }
 
 export function SeriesPage() {
+  // Volumes being added right now, so a double tap doesn't add one twice.
+  const [adding, setAdding] = useState<Set<string>>(new Set())
   const { name = '' } = useParams()
   const nav = useNavigate()
   const store = useStore()
@@ -54,7 +57,9 @@ export function SeriesPage() {
               </div>
             </Link>
             {b.state === 'none' ? (
-              <button className="btn btn-ghost sm" onClick={async () => {
+              <button className="btn btn-ghost sm" disabled={adding.has(b.work.id)} onClick={async () => {
+                if (adding.has(b.work.id)) return
+                setAdding((x) => new Set(x).add(b.work.id))
                 // A volume someone else added: use its catalogue record and first edition as they are.
                 const found = store.editionsByWork.get(b.work.id)?.length
                   ? { work: b.work, editions: store.editionsByWork.get(b.work.id)! }
@@ -65,6 +70,7 @@ export function SeriesPage() {
                   edition: ed ?? { format: 'paperback', narrators: [], translators: [] },
                 })
                 toast(`${b.work.title} added to Want to read`)
+                setAdding((x) => { const n = new Set(x); n.delete(b.work.id); return n })
               }}><Plus size={14} /> Want to read</button>
             ) : (
               <span className={`pill tiny state-pill`}>{b.state === 'read' && <Check size={11} />} {STATE_LABEL[b.state] ?? STATUSES.find((x) => x.id === b.state)?.short}</span>

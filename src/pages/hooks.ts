@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { buildSeries, type Series } from '../lib/series'
 import type { Work } from '../lib/types'
-import { completions, type Completion } from '../lib/stats'
+import { completions, type Completion, goalPace } from '../lib/stats'
 import { useStore } from '../state/store'
 
 export function useCompletions(includeDnf = false): Completion[] {
@@ -18,9 +18,9 @@ export function useYearProgress() {
   const year = new Date().getFullYear()
   const done = all.filter((c) => c.year === year).length
   const goal = data.settings.yearlyGoal || 1
-  const dayOfYear = (Date.now() - Date.UTC(year, 0, 1)) / 86400000
-  const expected = (goal * dayOfYear) / 365
-  return { year, done, goal, pct: done / goal, ahead: Math.round(done - expected) }
+  // Same pace sum as Stats, so both screens say the same thing.
+  const pace = goalPace(done, goal, year)
+  return { year, done, goal, pct: done / goal, ahead: pace.ahead, paceText: pace.text }
 }
 
 // ── Series ────────────────────────────────────────────────────────────────────

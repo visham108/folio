@@ -45,8 +45,8 @@ export const SMART_SHELVES: SmartShelf[] = [
     match: (c) => unstarted(c) && c.edition?.format === 'audiobook',
   },
   {
-    id: 'owned-unread', name: 'Owned, not yet read', description: 'Books you have a copy of but haven’t read.',
-    match: (c) => c.entry.owned && !finished(c).length && c.entry.status !== 'reading',
+    id: 'owned-unread', name: 'Owned, not yet read', description: 'Books you have a copy of and haven’t started.',
+    match: (c) => c.entry.owned && !finished(c).length && c.entry.status === 'want',
   },
   {
     id: 'waiting-longest', name: 'Waiting over a year', description: 'Want-to-read books added more than a year ago.',

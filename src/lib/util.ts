@@ -125,3 +125,7 @@ export function isbn10to13(isbn10: string): string {
 }
 
 export const splitList = (s: string) => s.split(/[,;]|\s+&\s+|\s+and\s+/).map((x) => x.trim()).filter(Boolean)
+
+// Cover images may only come from these hosts (anything else could be used to track who views a book).
+const COVER_HOSTS = /^https:\/\/([a-z0-9-]+\.supabase\.co\/storage\/v1\/object\/public\/covers\/|books\.google\.com\/books\/|books\.googleusercontent\.com\/|covers\.openlibrary\.org\/)/i
+export const isAllowedCoverUrl = (url?: string) => !!url && url.length <= 2000 && COVER_HOSTS.test(url)

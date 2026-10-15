@@ -8,7 +8,7 @@ const CSP = [
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   'font-src https://fonts.gstatic.com',
-  'img-src \'self\' data: blob: https:',
+  'img-src \'self\' data: blob: https://*.supabase.co https://books.google.com https://books.googleusercontent.com https://covers.openlibrary.org https://*.archive.org',
   'connect-src \'self\' https://*.supabase.co wss://*.supabase.co https://www.googleapis.com https://openlibrary.org',
   "media-src 'self' blob:",
   "worker-src 'self' blob:",

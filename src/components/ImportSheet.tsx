@@ -252,6 +252,12 @@ export function ImportSheet({ open, onClose }: { open: boolean; onClose: () => v
               <p className="muted small">
                 {sampled && `In the first ${SAMPLE} rows: `}{plural(plan.added, 'new book')} for the catalogue, {plan.matched} matched to books already in Folio
                 {plan.skipped ? `, ${plan.skipped} already on your shelves (left as they are)` : ''}.
+                {(() => {
+                  // Rows for a book that appeared earlier in the file are its rereads.
+                  const rows = sampled ? Math.min(SAMPLE, file.rows.length) : file.rows.length
+                  const rereads = rows - plan.problems.length - plan.data.entries.length - plan.skipped
+                  return rereads > 0 ? ` ${plural(rereads, 'row')} ${rereads === 1 ? 'is a reread' : 'are rereads'} of a book listed above, so ${rereads === 1 ? 'it’s' : 'they’re'} added as extra reads.` : ''
+                })()}
               </p>
               {plan.problems.length > 0 && (
                 <details className="howto">

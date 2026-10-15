@@ -1,13 +1,13 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { Grid2x2, List, Plus, Search, Sparkles, X } from 'lucide-react'
+import { Grid2x2, List, Pencil, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
 import { titleCase } from '../lib/titleCase'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { BookTile } from '../components/BookTile'
 import { Cover } from '../components/Cover'
-import { Empty, Segmented, Sheet, Stars } from '../components/ui'
+import { ConfirmSheet, Empty, Segmented, Sheet, Stars } from '../components/ui'
 import { fold } from '../lib/match'
-import { STATUSES, mediumOf, type Entry } from '../lib/types'
+import { STATUSES, mediumOf, type Entry, type Shelf } from '../lib/types'
 import { fmtDate, fmtDuration, uid } from '../lib/util'
 import { useStore } from '../state/store'
 import { findSmart, nextInSeriesIds, SMART_SHELVES, smartId } from '../lib/smartShelves'
@@ -37,8 +37,11 @@ export function Library() {
     try { return (localStorage.getItem(VIEW_KEY) as 'grid' | 'list') || 'grid' } catch { return 'grid' }
   })
   const setView = (v: 'grid' | 'list') => { setViewState(v); try { localStorage.setItem(VIEW_KEY, v) } catch { /* private mode */ } }
-  const [newShelf, setNewShelf] = useState(false)
+  // The shelf being created ('new') or renamed.
+  const [shelfEdit, setShelfEdit] = useState<Shelf | 'new' | null>(null)
   const [shelfName, setShelfName] = useState('')
+  const [confirmDeleteShelf, setConfirmDeleteShelf] = useState(false)
+  const openShelfEditor = (s: Shelf | 'new') => { setShelfEdit(s); setShelfName(s === 'new' ? '' : s.name) }
 
   const shelf = data.shelves.find((s) => s.id === pile)
   const smart = findSmart(pile)
@@ -60,14 +63,17 @@ export function Library() {
   }, [data.entries, works, readsByEntry, series]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: data.entries.length }
-    for (const e of data.entries) {
+    // Counted the same way as the list below (books whose details are loaded), so they agree.
+    const shown = data.entries.filter((e) => works.has(e.workId))
+    const c: Record<string, number> = { all: shown.length }
+    for (const e of shown) {
       c[e.status] = (c[e.status] ?? 0) + 1
+      if (e.favorite) c.favorites = (c.favorites ?? 0) + 1
       for (const s of e.shelfIds) c[s] = (c[s] ?? 0) + 1
     }
     for (const [id, set] of smartMembers) c[id] = set.size
     return c
-  }, [data.entries, smartMembers])
+  }, [data.entries, works, smartMembers])
 
   const lastFinished = (e: Entry) =>
     (readsByEntry.get(e.id) ?? []).filter((r) => r.finishedOn).map((r) => r.finishedOn!).sort().pop() ?? ''
@@ -81,7 +87,11 @@ export function Library() {
       if (pile === 'favorites') return e.favorite
       return e.status === pile
     })
-    if (format !== 'all') xs = xs.filter((e) => mediumOf(store.editionOf(e)?.format) === format)
+    // A format matches your edition, or any edition you've read it in (a print book you listened to counts as audio).
+    if (format !== 'all') {
+      xs = xs.filter((e) => mediumOf(store.editionOf(e)?.format) === format ||
+        (readsByEntry.get(e.id) ?? []).some((r) => r.editionId && mediumOf(store.editions.get(r.editionId)?.format) === format))
+    }
     if (needle) {
       xs = xs.filter((e) => {
         const w = works.get(e.workId)
@@ -89,28 +99,31 @@ export function Library() {
       })
     }
     const w = (e: Entry) => works.get(e.workId)!
+    // Audiobooks are compared in page-equivalents, using your listening setting.
     const len = (e: Entry) => {
       const ed = store.editionOf(e)
-      return ed?.pages ?? (ed?.durationMin ? ed.durationMin / 2 : 0)
+      return ed?.pages ?? (ed?.durationMin ? (ed.durationMin / 60) * data.settings.audioPagesPerHour : 0)
     }
     const cmp: Record<Sort, (a: Entry, b: Entry) => number> = {
       added: (a, b) => b.addedAt.localeCompare(a.addedAt),
       title: (a, b) => w(a).title.localeCompare(w(b).title),
-      author: (a, b) => (w(a).authors[0]?.split(' ').pop() ?? '').localeCompare(w(b).authors[0]?.split(' ').pop() ?? ''),
+      author: (a, b) => surnameKey(w(a).authors[0]).localeCompare(surnameKey(w(b).authors[0])),
       rating: (a, b) => (b.rating ?? 0) - (a.rating ?? 0),
       finished: (a, b) => lastFinished(b).localeCompare(lastFinished(a)),
       length: (a, b) => len(b) - len(a),
     }
     return xs.filter((e) => works.has(e.workId)).sort(cmp[sort])
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.entries, pile, shelf, smart, smartMembers, q, sort, format, works, readsByEntry])
+  }, [data.entries, pile, shelf, smart, smartMembers, q, sort, format, works, readsByEntry, data.settings.audioPagesPerHour])
 
-  const title = shelf ? shelf.name : smart ? smart.name : pile === 'favorites' ? 'Favourites' : STATUSES.find((s) => s.id === pile)?.label ?? 'Library'
+  const status = STATUSES.find((s) => s.id === pile)
+  const known = pile === 'all' || pile === 'favorites' || !!shelf || !!smart || !!status
+  const title = shelf ? shelf.name : smart ? smart.name : pile === 'favorites' ? 'Favourites' : status?.label ?? (known ? 'Library' : 'Shelf not found')
   // Keep the chosen pile in view (smart shelves sit at the far end of the row).
   const pilesRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const row = pilesRef.current
-    const on = row?.querySelector<HTMLElement>('[aria-selected="true"]')
+    const on = row?.querySelector<HTMLElement>('[aria-current="page"]')
     if (!row || !on) return
     const left = on.offsetLeft - row.offsetLeft
     if (left < row.scrollLeft || left + on.offsetWidth > row.scrollLeft + row.clientWidth) row.scrollLeft = left - 24
@@ -130,7 +143,7 @@ export function Library() {
     { id: 'all', label: 'All' },
     ...STATUSES.map((s) => ({ id: s.id, label: s.short })),
     { id: 'favorites', label: '♥ Favourites' },
-    ...data.shelves.sort((a, b) => a.position - b.position).map((s) => ({ id: s.id, label: `${s.emoji ? s.emoji + ' ' : ''}${s.name}` })),
+    ...[...data.shelves].sort((a, b) => a.position - b.position).map((s) => ({ id: s.id, label: `${s.emoji ? s.emoji + ' ' : ''}${s.name}` })),
   ]
   // Smart shelves appear only when they hold something (or you're looking at one).
   const smartPiles = SMART_SHELVES.map((s) => ({ id: smartId(s.id), label: s.name }))
@@ -140,18 +153,20 @@ export function Library() {
     <div className="page">
       <header className="page-head row">
         <div>
-          <p className="eyebrow">{list.length} {list.length === 1 ? 'book' : 'books'}</p>
+          <p className="eyebrow">{shelf ? 'Shelf · ' : ''}{list.length} {list.length === 1 ? 'book' : 'books'}</p>
           <h1 className="display">{title}</h1>
         </div>
-        <Link to="/add" className="btn btn-primary hide-mobile"><Plus size={18} /> Add a book</Link>
+        <div className="head-actions">
+          {shelf && <button className="btn btn-ghost sm" onClick={() => openShelfEditor(shelf)}><Pencil size={14} /> Edit shelf</button>}
+          <Link to="/add" className="btn btn-primary hide-mobile"><Plus size={18} /> Add a book</Link>
+        </div>
       </header>
 
-      <div className="piles" role="tablist" aria-label="Piles" ref={pilesRef}>
+      <nav className="piles" aria-label="Piles and shelves" ref={pilesRef}>
         {piles.map((p) => (
           <button
             key={p.id}
-            role="tab"
-            aria-selected={pile === p.id}
+            aria-current={pile === p.id ? 'page' : undefined}
             className={`pile ${pile === p.id ? 'on' : ''}`}
             onClick={() => nav(p.id === 'all' ? '/library' : `/library/${p.id}`)}
           >
@@ -159,13 +174,12 @@ export function Library() {
             <span className="pile-label">{p.label}{counts[p.id] ? <i>{counts[p.id]}</i> : null}</span>
           </button>
         ))}
-        <button className="pile add" onClick={() => setNewShelf(true)}><Plus size={14} /> Shelf</button>
+        <button className="pile add" onClick={() => openShelfEditor('new')}><Plus size={14} /> New shelf</button>
         {smartPiles.length > 0 && <span className="pile-divider" aria-hidden>Smart</span>}
         {smartPiles.map((p) => (
           <button
             key={p.id}
-            role="tab"
-            aria-selected={pile === p.id}
+            aria-current={pile === p.id ? 'page' : undefined}
             className={`pile smart ${pile === p.id ? 'on' : ''}`}
             onClick={() => nav(`/library/${p.id}`)}
           >
@@ -173,13 +187,13 @@ export function Library() {
             <span className="pile-label"><Sparkles size={12} /> {p.label}{counts[p.id] ? <i>{counts[p.id]}</i> : null}</span>
           </button>
         ))}
-      </div>
+      </nav>
       {smart && <p className="muted smart-desc"><Sparkles size={13} /> {smart.description} Folio keeps this shelf up to date for you.</p>}
 
       <div className="toolbar">
         <label className="search">
           <Search size={16} />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search title, author, genre, tag…" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search title, author, genre, tag…" aria-label="Search your library" />
           {q && <button className="icon-btn" onClick={() => setQ('')} aria-label="Clear search"><X size={14} /></button>}
         </label>
         <select className="select" value={format} onChange={(e) => setFormat(e.target.value as typeof format)} aria-label="Format">
@@ -201,8 +215,10 @@ export function Library() {
       </div>
 
       {list.length === 0 ? (
-        <Empty title={q ? 'No matches' : 'Nothing here yet'}>
-          {q ? <p>Try a different search.</p> : <p>Books you add to this pile will show up here. <Link className="link" to="/add">Add one</Link>.</p>}
+        <Empty title={!known ? 'Shelf not found' : q || format !== 'all' ? 'No matches' : 'Nothing here yet'}>
+          {!known ? <p>It may have been deleted. <Link className="link" to="/library">Back to your library</Link></p>
+            : q || format !== 'all' ? <p>Try a different search or format.</p>
+              : <p>{emptyCopy(pile, !!shelf, !!smart)}</p>}
         </Empty>
       ) : view === 'grid' ? (
         <div className="grid">
@@ -212,6 +228,14 @@ export function Library() {
         </div>
       ) : (
         <div className="table card">
+          <div className="trow thead" aria-hidden>
+            <span />
+            <span className="trow-main">Book</span>
+            <span className="trow-cell hide-mobile">Length</span>
+            <span className="trow-cell hide-mobile">Pile</span>
+            <span className="trow-cell hide-mobile">Last finished</span>
+            <span className="trow-cell">Rating</span>
+          </div>
           {list.map((e) => {
             const w = works.get(e.workId)!
             const ed = store.editionOf(e)
@@ -234,29 +258,76 @@ export function Library() {
       )}
 
       <Sheet
-        open={newShelf}
-        onClose={() => setNewShelf(false)}
-        title="New shelf"
+        open={!!shelfEdit}
+        onClose={() => setShelfEdit(null)}
+        title={shelfEdit === 'new' ? 'New shelf' : 'Edit shelf'}
         footer={
-          <button
-            className="btn btn-primary"
-            disabled={!shelfName.trim()}
-            onClick={() => {
-              const s = { id: uid(), name: titleCase(shelfName), position: data.shelves.length }
-              store.saveShelf(s)
-              setShelfName('')
-              setNewShelf(false)
-              nav(`/library/${s.id}`)
-            }}
-          >
-            Create shelf
-          </button>
+          <>
+            {shelfEdit && shelfEdit !== 'new' && (
+              <button className="btn btn-ghost danger" onClick={() => setConfirmDeleteShelf(true)}><Trash2 size={14} /> Delete shelf</button>
+            )}
+            <button
+              className="btn btn-primary"
+              disabled={!shelfName.trim()}
+              onClick={() => {
+                if (shelfEdit === 'new') {
+                  const s = { id: uid(), name: titleCase(shelfName), position: data.shelves.length }
+                  store.saveShelf(s)
+                  nav(`/library/${s.id}`)
+                } else if (shelfEdit) store.saveShelf({ ...shelfEdit, name: titleCase(shelfName) })
+                setShelfEdit(null)
+              }}
+            >
+              {shelfEdit === 'new' ? 'Create shelf' : 'Save'}
+            </button>
+          </>
         }
       >
-        <p className="muted">Shelves are your own piles: “Summer 2026”, “Book club”, “Comfort reads”. A book can sit on as many as you like.</p>
-        <input className="input" value={shelfName} onChange={(e) => setShelfName(e.target.value)} placeholder="Shelf name" />
+        {shelfEdit === 'new' && <p className="muted">Shelves are your own piles: “Summer 2026”, “Book club”, “Comfort reads”. A book can sit on as many as you like.</p>}
+        <label className="field">
+          <span className="field-label">Shelf name</span>
+          <input className="input" value={shelfName} maxLength={80} onChange={(e) => setShelfName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && shelfName.trim()) (e.currentTarget.closest('.sheet')?.querySelector('.sheet-foot .btn-primary') as HTMLButtonElement | null)?.click() }} />
+        </label>
       </Sheet>
+      <ConfirmSheet
+        open={confirmDeleteShelf}
+        title="Delete this shelf?"
+        confirmLabel="Delete shelf"
+        danger
+        onClose={() => setConfirmDeleteShelf(false)}
+        onConfirm={() => {
+          if (shelfEdit && shelfEdit !== 'new') store.deleteShelf(shelfEdit.id)
+          setConfirmDeleteShelf(false)
+          setShelfEdit(null)
+          nav('/library')
+        }}
+      >
+        <p>The shelf goes, but its books stay in your library.</p>
+      </ConfirmSheet>
     </div>
   )
 }
 
+// Sort by surname, keeping particles ("Le Guin", "van der Berg") and skipping suffixes ("Jr.", "III").
+const SUFFIX = /^(jr|sr|ii|iii|iv|phd|md)\.?$/i
+const PARTICLE = /^(le|la|de|del|della|di|da|du|des|van|von|der|den|ten|ter|bin|al|el|st\.?)$/i
+function surnameKey(name = ''): string {
+  const parts = name.replace(/,/g, ' ').split(/\s+/).filter(Boolean)
+  while (parts.length > 1 && SUFFIX.test(parts[parts.length - 1])) parts.pop()
+  let i = parts.length - 1
+  while (i > 1 && PARTICLE.test(parts[i - 1])) i--
+  return fold(parts.slice(i).join(' ') + ' ' + parts.slice(0, i).join(' '))
+}
+
+function emptyCopy(pile: string, isShelf: boolean, isSmart: boolean): string {
+  if (isShelf) return 'Add books to this shelf from their pages, under “Shelves & tags”.'
+  if (isSmart) return 'Nothing fits this shelf right now. It fills itself as your library changes.'
+  switch (pile) {
+    case 'paused': return 'Books you pause show up here. Pause one from its page when you put it down for a while.'
+    case 'dnf': return 'Books you set aside show up here.'
+    case 'favorites': return 'Tap the heart on a book’s page to add it here.'
+    case 'reading': return 'Start a book from its page, or add one you’re reading now.'
+    default: return 'Books you add will show up here.'
+  }
+}

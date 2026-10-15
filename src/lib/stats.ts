@@ -171,7 +171,7 @@ export function dailyActivity(logs: LogPoint[], items: Completion[], year: numbe
 }
 
 export function streak(logs: LogPoint[]): { current: number; best: number } {
-  const days = [...new Set(logs.filter((l) => l.amount > 0).map((l) => l.on))].sort()
+  const days = [...new Set(logs.filter((l) => l.amount >= 0).map((l) => l.on))].sort()
   let best = 0, run = 0, prev = ''
   for (const d of days) {
     run = prev && Date.parse(d) - Date.parse(prev) === 86400000 ? run + 1 : 1

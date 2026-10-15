@@ -6,7 +6,7 @@ import { ImportSheet } from '../components/ImportSheet'
 import { sampleLibrary } from '../lib/sample'
 import { downloadBackup, lastBackup } from '../lib/backup'
 import { downloadText, fullCsv, goodreadsCsv } from '../lib/exporter'
-import { fmtDate } from '../lib/util'
+import { fmtDate, localIso, plural, today } from '../lib/util'
 import type { Settings, Snapshot } from '../lib/types'
 import { useStore } from '../state/store'
 import { useToast } from '../state/toast'
@@ -42,7 +42,9 @@ export function SettingsPage() {
         reads: parsed.reads ?? [], logs: parsed.logs ?? [], shelves: parsed.shelves ?? [],
       })
       if (parsed.settings) store.saveSettings(parsed.settings)
-      toast(`Restored ${res.books} books${res.matched ? ` (${res.matched} matched to books already in Folio)` : ''}`)
+      toast(res.matched
+        ? `Restored ${plural(res.books, 'book')}. ${res.matched} were already here, so they were combined, not duplicated.`
+        : `Restored ${plural(res.books, 'book')}`)
     } catch (e) {
       toast((e as Error).message, { tone: 'error' })
     } finally {
@@ -101,7 +103,7 @@ export function SettingsPage() {
 
       <section className="card form-card">
         <h3>Your data</h3>
-        <p className="muted">It’s yours. Download everything as a backup at any time, or restore from one. Restoring adds to your library and never duplicates books you already have.{last && <> Last backup: <b>{fmtDate(last.slice(0, 10))}</b>.</>}</p>
+        <p className="muted">It’s yours. Download everything as a backup at any time, or restore from one. Restoring adds to your library and never duplicates books you already have.{last && <> Last backup: <b>{fmtDate(localIso(new Date(last)))}</b>.</>}</p>
         <div className="btn-row">
           <button className="btn btn-soft" onClick={exportJson}><Download size={16} /> Download backup</button>
           <button className="btn btn-ghost" disabled={!!busy} onClick={() => jsonFile.current?.click()}><Upload size={16} /> {busy ?? 'Restore from export'}</button>
@@ -110,10 +112,10 @@ export function SettingsPage() {
         <h4 className="sub-head">Export as a spreadsheet</h4>
         <p className="muted small">For other apps or Excel. Goodreads only stores whole stars, so half-star ratings are rounded in that file.</p>
         <div className="btn-row">
-          <button className="btn btn-ghost" onClick={() => { downloadText(goodreadsCsv(data), `folio-goodreads-${new Date().toISOString().slice(0, 10)}.csv`); toast('Goodreads-format CSV downloaded') }}>
+          <button className="btn btn-ghost" onClick={() => { downloadText(goodreadsCsv(data), `folio-goodreads-${today()}.csv`); toast('Goodreads-format CSV downloaded') }}>
             <FileSpreadsheet size={16} /> Goodreads / StoryGraph CSV
           </button>
-          <button className="btn btn-ghost" onClick={() => { downloadText(fullCsv(data), `folio-library-${new Date().toISOString().slice(0, 10)}.csv`); toast('Full spreadsheet downloaded') }}>
+          <button className="btn btn-ghost" onClick={() => { downloadText(fullCsv(data), `folio-library-${today()}.csv`); toast('Full spreadsheet downloaded') }}>
             <FileSpreadsheet size={16} /> Full spreadsheet (one row per read)
           </button>
         </div>
@@ -124,7 +126,7 @@ export function SettingsPage() {
         <p className="muted">
           {backend?.kind === 'cloud'
             ? <>Signed in as <b>{backend.userLabel}</b>. Your library syncs across devices.{store.isAdmin && <span className="pill tiny admin-pill"><ShieldCheck size={11} /> Super admin</span>}</>
-            : <>Your library lives in this browser only. Sign in with Google to sync it everywhere. Export first, then restore after signing in to bring these books along.</>}
+            : <>Your library lives in this browser only. Sign in with Google to sync it everywhere; Folio offers to bring these books into your account when you do.</>}
         </p>
         <div className="btn-row">
           <button className="btn btn-ghost" onClick={() => store.signOut()}><LogOut size={16} /> {backend?.kind === 'cloud' ? 'Sign out' : 'Switch to an account'}</button>

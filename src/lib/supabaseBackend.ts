@@ -1,7 +1,10 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import type { Backend, CatalogueChange } from './backend'
+import type { Backend, CatalogueChange, IdRemap } from './backend'
 import type { Edition, Entry, LogPoint, Read, Settings, Shelf, Snapshot, Work } from './types'
 import { DEFAULT_SETTINGS } from './types'
+import { mergeEntryFields } from './merge'
+import { titleSimilarity } from './match'
+import { isAllowedCoverUrl } from './util'
 
 const URL_ = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
@@ -81,8 +84,8 @@ const editionTo = (e: Edition): Row => ({
   id: e.id, work_id: e.workId, format: e.format, title: e.title ?? null, publisher: e.publisher ?? null,
   published_date: e.publishedDate ?? null, isbn13: e.isbn13 ?? null, isbn10: e.isbn10 ?? null, asin: e.asin ?? null,
   language: e.language ?? null, pages: e.pages ?? null, duration_min: e.durationMin ?? null, narrators: e.narrators,
-  // Only hosted images are shared; on-device photos (data: URLs) stay local.
-  translators: e.translators, cover_url: e.coverUrl?.startsWith('https://') ? e.coverUrl : null, note: e.note ?? null,
+  // Only images from known hosts are shared; on-device photos (data: URLs) stay local.
+  translators: e.translators, cover_url: isAllowedCoverUrl(e.coverUrl) ? e.coverUrl : null, note: e.note ?? null,
 })
 const entryFrom = (r: Row): Entry => ({
   id: r.id, workId: r.work_id, editionId: und(r.edition_id), status: r.status,
@@ -115,10 +118,24 @@ function chunks<T>(xs: T[], n = 150): T[][] {
   return out
 }
 
-async function all(q: PromiseLike<{ data: Row[] | null; error: unknown }>): Promise<Row[]> {
-  const { data, error } = await q
-  if (error) throw error
-  return data ?? []
+// The API returns at most 1000 rows per request, so bigger reads are fetched page by page.
+const PAGE = 1000
+type Ranged = { range(from: number, to: number): PromiseLike<{ data: Row[] | null; error: unknown }> }
+async function all(make: () => Ranged): Promise<Row[]> {
+  const out: Row[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await make().range(from, from + PAGE - 1)
+    if (error) throw error
+    out.push(...(data ?? []))
+    if (!data || data.length < PAGE) return out
+  }
+}
+
+/** The account the browser is signed in as right now (null when the session has lapsed). */
+export async function sessionUserId(): Promise<string | null> {
+  if (!cloudConfigured) return null
+  const { data } = await supabase().auth.getSession().catch(() => ({ data: { session: null } }))
+  return data.session?.user.id ?? null
 }
 
 const LAST_USER = 'folio.lastUser'
@@ -159,19 +176,19 @@ export async function createCloudBackend(): Promise<Backend | null> {
     isAdmin: admin === true,
     async loadAll(): Promise<Snapshot> {
       const [entries, reads, logs, shelves, profile, mine] = await Promise.all([
-        all(sb.from('entries').select('*')),
-        all(sb.from('reads').select('*')),
-        all(sb.from('logs').select('*')),
-        all(sb.from('shelves').select('*').order('position')),
+        all(() => sb.from('entries').select('*').order('id')),
+        all(() => sb.from('reads').select('*').order('id')),
+        all(() => sb.from('logs').select('*').order('id')),
+        all(() => sb.from('shelves').select('*').order('position').order('id')),
         sb.from('profiles').select('*').eq('id', user.id).maybeSingle(),
-        all(sb.from('works').select('id').eq('created_by', user.id)),
+        all(() => sb.from('works').select('id').eq('created_by', user.id).order('id')),
       ])
       const workIds = [...new Set([...entries.map((e) => e.work_id as string), ...mine.map((w) => w.id as string)])]
       const works: Row[] = []
       const editions: Row[] = []
       for (const ids of chunks(workIds)) {
-        works.push(...(await all(sb.from('works').select('*').in('id', ids))))
-        editions.push(...(await all(sb.from('editions').select('*').in('work_id', ids))))
+        works.push(...(await all(() => sb.from('works').select('*').in('id', ids).order('id'))))
+        editions.push(...(await all(() => sb.from('editions').select('*').in('work_id', ids).order('id'))))
       }
       const p = profile.data
       return {
@@ -197,7 +214,9 @@ export async function createCloudBackend(): Promise<Backend | null> {
     mergeWorks: (fromId, intoId) => ok(sb.rpc('merge_works', { from_id: fromId, into_id: intoId })),
     async history(ids) {
       if (!ids.length) return []
-      const rows = await all(sb.from('catalogue_changes').select('*').in('record_id', ids).order('changed_at', { ascending: false }).limit(40))
+      const { data: rows0, error } = await sb.from('catalogue_changes').select('*').in('record_id', ids).order('changed_at', { ascending: false }).limit(40)
+      if (error) throw error
+      const rows = (rows0 ?? []) as Row[]
       const skip = new Set(['updated_at', 'updated_by', 'created_at', 'created_by'])
       return rows.map((r): CatalogueChange => ({
         id: r.id, table: r.table_name, recordId: r.record_id, action: r.action, changedBy: und(r.changed_by), changedAt: r.changed_at,
@@ -224,9 +243,23 @@ export async function createCloudBackend(): Promise<Backend | null> {
       // is reused rather than rejected as a duplicate.
       const isbns = [...new Set(editions.map((e) => e.isbn13).filter((x): x is string => !!x))]
       const taken = new Map<string, Row>()
-      for (const c of chunks(isbns)) for (const r of await all(sb.from('editions').select('id, work_id, isbn13').in('isbn13', c))) taken.set(r.isbn13, r)
+      for (const c of chunks(isbns)) for (const r of await all(() => sb.from('editions').select('id, work_id, isbn13').in('isbn13', c).order('id'))) taken.set(r.isbn13, r)
+      // Only trust an existing ISBN when it belongs to (roughly) the same title: an ISBN typed on
+      // the wrong book, or claimed on purpose, mustn't capture other people's books.
+      const takenWorks = new Map<string, Row>()
+      const needTitles = [...new Set([...taken.values()].map((r) => r.work_id as string))]
+      for (const c of chunks(needTitles)) for (const r of await all(() => sb.from('works').select('id, title').in('id', c).order('id'))) takenWorks.set(r.id, r)
+      const titleOf = new Map([...works, ...(part.works ?? [])].map((w) => [w.id, w.title]))
       const edMap = new Map<string, string>()
       const workMap = new Map<string, string>()
+      editions = editions.map((e) => {
+        const hit = e.isbn13 ? taken.get(e.isbn13) : undefined
+        if (!hit || hit.id === e.id) return e
+        const mine = titleOf.get(e.workId)
+        const theirs = takenWorks.get(hit.work_id)?.title
+        if (mine && theirs && titleSimilarity(mine, theirs) < 0.6) return { ...e, isbn13: undefined, isbn10: undefined }
+        return e
+      })
       editions = editions.filter((e) => {
         const hit = e.isbn13 ? taken.get(e.isbn13) : undefined
         if (!hit || hit.id === e.id) return true
@@ -241,14 +274,24 @@ export async function createCloudBackend(): Promise<Backend | null> {
         const used = new Set([...editions.map((e) => e.workId), ...entries.map((e) => e.workId)])
         works = works.filter((w) => used.has(w.id))
       }
-      // One shelf entry per book: fold anything that collides into the entry you already have.
-      const mine = new Map((await all(sb.from('entries').select('id, work_id'))).map((r) => [r.work_id as string, r.id as string]))
+      // One shelf entry per book: fold anything that collides into the entry you already have,
+      // keeping whatever either of them recorded.
+      const mine = new Map((await all(() => sb.from('entries').select('id, work_id').order('id'))).map((r) => [r.work_id as string, r.id as string]))
       const entryMap = new Map<string, string>()
-      entries = entries.filter((en) => {
-        const have = mine.get(en.workId)
-        if (have && have !== en.id) { entryMap.set(en.id, have); return false }
-        return true
-      })
+      const folded: Entry[] = []
+      const clashes = entries.filter((en) => { const have = mine.get(en.workId); return have && have !== en.id })
+      if (clashes.length) {
+        const ids = clashes.map((en) => mine.get(en.workId)!)
+        const existing = new Map<string, Entry>()
+        for (const c of chunks(ids)) for (const r of await all(() => sb.from('entries').select('*').in('id', c).order('id'))) existing.set(r.id, entryFrom(r))
+        for (const en of clashes) {
+          const have = existing.get(mine.get(en.workId)!)
+          if (!have) continue
+          entryMap.set(en.id, have.id)
+          folded.push({ ...have, ...mergeEntryFields(have, en), updatedAt: new Date().toISOString() })
+        }
+      }
+      entries = [...entries.filter((en) => !entryMap.has(en.id)), ...folded]
       if (entryMap.size) reads = reads.map((r) => ({ ...r, entryId: entryMap.get(r.entryId) ?? r.entryId }))
 
       // Order matters for foreign keys.
@@ -258,13 +301,17 @@ export async function createCloudBackend(): Promise<Backend | null> {
       for (const c of chunks(entries, 300)) await upsert('entries', c.map(entryTo))
       for (const c of chunks(reads, 300)) await upsert('reads', c.map(readTo))
       for (const c of chunks(logs, 500)) await upsert('logs', c.map(logTo))
+      if (edMap.size || entryMap.size) {
+        const remap: IdRemap = { works: Object.fromEntries(workMap), editions: Object.fromEntries(edMap), entries: Object.fromEntries(entryMap) }
+        return remap
+      }
     },
     async catalogueFor({ isbns, titles }) {
       const workRows = new Map<string, Row>()
       const edRows = new Map<string, Row>()
       const clean = [...new Set(isbns.filter(Boolean))]
       for (const c of chunks(clean)) {
-        for (const r of await all(sb.from('editions').select('*').or(`isbn13.in.(${c.join(',')}),isbn10.in.(${c.join(',')})`))) edRows.set(r.id, r)
+        for (const r of await all(() => sb.from('editions').select('*').or(`isbn13.in.(${c.join(',')}),isbn10.in.(${c.join(',')})`).order('id'))) edRows.set(r.id, r)
       }
       const uniqTitles = [...new Set(titles.map((t) => t.trim()).filter(Boolean))]
       for (const c of chunks(uniqTitles, 500)) {
@@ -272,24 +319,30 @@ export async function createCloudBackend(): Promise<Backend | null> {
         if (!error) for (const r of (data as Row[]) ?? []) workRows.set(r.id, r)
       }
       const needWorks = [...new Set([...edRows.values()].map((e) => e.work_id as string))].filter((id) => !workRows.has(id))
-      for (const c of chunks(needWorks)) for (const r of await all(sb.from('works').select('*').in('id', c))) workRows.set(r.id, r)
+      for (const c of chunks(needWorks)) for (const r of await all(() => sb.from('works').select('*').in('id', c).order('id'))) workRows.set(r.id, r)
       const needEds = [...workRows.keys()]
-      for (const c of chunks(needEds)) for (const r of await all(sb.from('editions').select('*').in('work_id', c))) edRows.set(r.id, r)
+      for (const c of chunks(needEds)) for (const r of await all(() => sb.from('editions').select('*').in('work_id', c).order('id'))) edRows.set(r.id, r)
       return { works: [...workRows.values()].map(workFrom), editions: [...edRows.values()].map(editionFrom) }
     },
     async seriesWorks(names) {
       const uniq = [...new Set(names.map((n) => n.trim()).filter(Boolean))]
       if (!uniq.length) return { works: [], editions: [] }
       const works: Row[] = []
-      for (const c of chunks(uniq, 100)) works.push(...(await all(sb.from('works').select('*').in('series', c).limit(2000))))
+      for (const c of chunks(uniq, 100)) works.push(...(await all(() => sb.from('works').select('*').in('series', c).order('id'))))
       const editions: Row[] = []
-      for (const c of chunks(works.map((w) => w.id as string))) editions.push(...(await all(sb.from('editions').select('*').in('work_id', c))))
+      for (const c of chunks(works.map((w) => w.id as string))) editions.push(...(await all(() => sb.from('editions').select('*').in('work_id', c).order('id'))))
       return { works: works.map(workFrom), editions: editions.map(editionFrom) }
+    },
+    async sharedWorks(ids) {
+      if (!ids.length) return []
+      const { data, error } = await sb.rpc('shared_works', { ids })
+      if (error) return []
+      return ((data as string[] | null) ?? []).map(String)
     },
     async fetchWork(id) {
       const { data: w } = await sb.from('works').select('*').eq('id', id).maybeSingle()
       if (!w) return null
-      const eds = await all(sb.from('editions').select('*').eq('work_id', id))
+      const eds = await all(() => sb.from('editions').select('*').eq('work_id', id).order('id'))
       return { work: workFrom(w), editions: eds.map(editionFrom) }
     },
     async searchCatalog(title) {
@@ -297,7 +350,7 @@ export async function createCloudBackend(): Promise<Backend | null> {
       const { data, error } = await sb.rpc('find_similar_works', { q_title: title, q_limit: 8 })
       if (error || !data?.length) return { works: [], editions: [] }
       const works = (data as Row[]).map(workFrom)
-      const editions = (await all(sb.from('editions').select('*').in('work_id', works.map((w) => w.id)))).map(editionFrom)
+      const editions = (await all(() => sb.from('editions').select('*').in('work_id', works.map((w) => w.id)).order('id'))).map(editionFrom)
       return { works, editions }
     },
     async uploadCover(blob) {

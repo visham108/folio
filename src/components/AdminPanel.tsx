@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { CatalogueChange } from '../lib/backend'
 import type { Edition, Work } from '../lib/types'
-import { fmtDate } from '../lib/util'
+import { fmtDate, localIso } from '../lib/util'
 import { useStore } from '../state/store'
 import { useToast } from '../state/toast'
 import { Cover } from './Cover'
@@ -79,7 +79,7 @@ export function AdminPanel({ work, editions }: { work: Work; editions: Edition[]
                   <span className="pill tiny">{h.table === 'works' ? 'Book' : 'Edition'}</span>
                   <span>
                     {h.action === 'insert' ? 'Added' : h.action === 'delete' ? 'Removed' : `Edited ${h.fields.map((f) => FIELD_LABELS[f] ?? f).join(', ') || 'details'}`}
-                    <span className="muted"> · {who(h.changedBy)} · {fmtDate(h.changedAt.slice(0, 10))}</span>
+                    <span className="muted"> · {who(h.changedBy)} · {fmtDate(localIso(new Date(h.changedAt)))}</span>
                   </span>
                 </li>
               ))}

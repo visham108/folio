@@ -1,10 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { Backend } from '../lib/backend'
-import { createLocalBackend } from '../lib/localBackend'
+import type { Backend, IdRemap } from '../lib/backend'
+import { createLocalBackend, LOCAL_CHANNEL } from '../lib/localBackend'
 import { sampleLibrary } from '../lib/sample'
 import { mergeLibrary } from '../lib/merge'
 import { cacheSnapshot, forgetSnapshot, withOffline, type OfflineBackend } from '../lib/offline'
-import { cloudConfigured, createCloudBackend, supabase } from '../lib/supabaseBackend'
+import { cloudConfigured, createCloudBackend, sessionUserId, supabase } from '../lib/supabaseBackend'
 import {
   emptySnapshot, mediumOf, type Edition, type Entry, type LogPoint, type Read, type Settings, type Shelf,
   type Snapshot, type Status, type Work,
@@ -63,7 +63,13 @@ interface Store {
   deleteEdition(id: string): Promise<void>
   mergeWorks(fromId: string, intoId: string): Promise<void>
   setStatus(entryId: string, s: Status): void
+  /** A new read, not yet saved: open it in the editor and save it from there. */
+  draftRead(entryId: string, editionId?: string): Read
   startRead(entryId: string, editionId?: string): Read
+  /** Switch which edition is yours, carrying a read in progress across. */
+  chooseEdition(entryId: string, editionId: string): void
+  /** Where a book went if it was matched to an existing catalogue book after adding. */
+  movedTo(workId: string): string | undefined
   saveRead(r: Read): void
   deleteRead(id: string): void
   logProgress(readId: string, value: number): void
@@ -102,7 +108,16 @@ function index<T extends { id: string }>(xs: T[]) {
 export function StoreProvider({ children, onError }: { children: ReactNode; onError: (msg: string) => void }) {
   const [backend, setBackend] = useState<Backend | null>(null)
   const [ready, setReady] = useState(false)
-  const [data, setData] = useState<Snapshot>(emptySnapshot)
+  const [data, setDataState] = useState<Snapshot>(emptySnapshot)
+  // The latest library, updated synchronously, so changes made in quick succession (or from
+  // timers set up on an earlier render) always build on each other instead of a stale copy.
+  const live = useRef<Snapshot>(data)
+  const setData = useCallback((next: Snapshot | ((d: Snapshot) => Snapshot)) => {
+    live.current = typeof next === 'function' ? next(live.current) : next
+    setDataState(live.current)
+  }, [])
+  // Books whose id changed when they were matched to the shared catalogue (old id → new id).
+  const moved = useRef(new Map<string, string>())
   const [deviceBooks, setDeviceBooks] = useState(0)
   const [pending, setPending] = useState(0)
   const be = useRef<Backend | null>(null)
@@ -116,10 +131,15 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
     if (cloudConfigured) {
       const cloud = await createCloudBackend().catch(() => null)
       if (cloud) {
-        b = await withOffline(cloud, cloud.userId!, {
+        // Signed in: forget any earlier "use this device" choice, so signing out shows the sign-in screen.
+        setMode(null)
+        const ob: OfflineBackend = await withOffline(cloud, cloud.userId!, {
           onQueue: setPending,
           onDropped: (msg) => errRef.current('A change made offline couldn’t be saved: ' + msg),
+          signedInAs: sessionUserId,
+          onSynced: () => { if (be.current === ob) ob.loadAll().then(setData).catch(() => {}) },
         })
+        b = ob
       }
     }
     if (!b && (DEMO || getMode() === 'local')) b = createLocalBackend()
@@ -145,21 +165,36 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
     } else setData(emptySnapshot())
     setBackend(b)
     setReady(true)
-  }, [])
+  }, [setData])
 
-  // Back online: send anything made offline, then refresh from the server.
+  // Back online (or back to this tab): send anything made offline, then refresh from the server.
   useEffect(() => {
-    const onOnline = async () => {
+    const sync = async () => {
       const b = be.current as OfflineBackend | null
-      if (!b || b.kind !== 'cloud' || !b.flush) return
+      if (!b || b.kind !== 'cloud' || !b.flush || !b.pending()) return
       try {
-        await b.flush()
-        setData(await b.loadAll())
+        if (await b.flush()) setData(await b.loadAll())
       } catch { /* still flaky: the outbox keeps everything */ }
     }
-    window.addEventListener('online', onOnline)
-    return () => window.removeEventListener('online', onOnline)
-  }, [])
+    const onVisible = () => { if (document.visibilityState === 'visible') sync() }
+    window.addEventListener('online', sync)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('online', sync)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [setData])
+
+  // On-device library: another tab changed it, so show the latest.
+  useEffect(() => {
+    let ch: BroadcastChannel | undefined
+    try { ch = new BroadcastChannel(LOCAL_CHANNEL) } catch { return }
+    ch.onmessage = () => {
+      const b = be.current
+      if (b?.kind === 'local') b.loadAll().then(setData).catch(() => {})
+    }
+    return () => ch?.close()
+  }, [setData])
 
   // Keep this device's copy of the signed-in library current, so it opens offline.
   useEffect(() => {
@@ -177,12 +212,16 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
     return () => sub.subscription.unsubscribe()
   }, [boot])
 
-  // Fire-and-forget persistence with a visible error if the write fails.
+  // Saves run one after another in the order they were made (a book before its shelf record,
+  // "reading" before "finished"), with a visible error if one fails.
+  const chain = useRef<Promise<unknown>>(Promise.resolve())
   const persist = useCallback(
-    (f: (b: Backend) => Promise<unknown>) => {
+    <T,>(f: (b: Backend) => Promise<T>): Promise<T | undefined> => {
       const b = be.current
-      if (!b) return
-      f(b).catch((e) => errRef.current('Couldn’t save: ' + ((e as Error).message ?? 'unknown error')))
+      if (!b) return Promise.resolve(undefined)
+      const run = chain.current.then(() => f(b))
+      chain.current = run.catch((e) => errRef.current('Couldn’t save: ' + ((e as Error).message ?? 'unknown error')))
+      return run.catch(() => undefined)
     },
     [],
   )
@@ -230,6 +269,65 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
   const isAdmin = !!backend?.isAdmin
   const userId = backend?.userId
 
+  // Lookups against the latest data (not this render's copy), for use inside mutations.
+  const entryNow = (id: string) => live.current.entries.find((e) => e.id === id)
+  const readsNow = (entryId: string) =>
+    live.current.reads.filter((r) => r.entryId === entryId)
+      .sort((x, y) => (x.startedOn ?? x.finishedOn ?? '').localeCompare(y.startedOn ?? y.finishedOn ?? ''))
+
+  /** Ids changed when a book was matched to the shared catalogue: point everything at the new ones. */
+  const applyRemap = (r: IdRemap) => {
+    const w = (id: string) => r.works[id] ?? id
+    const ed = (id?: string) => (id ? r.editions[id] ?? id : id)
+    const en = (id: string) => r.entries[id] ?? id
+    for (const [from, to] of Object.entries(r.works)) moved.current.set(from, to)
+    setData((d) => ({
+      ...d,
+      works: d.works.filter((x) => !r.works[x.id]),
+      editions: d.editions.filter((x) => !r.editions[x.id]).map((x) => ({ ...x, workId: w(x.workId) })),
+      entries: d.entries.filter((x) => !r.entries[x.id]).map((x) => ({ ...x, workId: w(x.workId), editionId: ed(x.editionId) })),
+      reads: d.reads.map((x) => ({ ...x, entryId: en(x.entryId), editionId: ed(x.editionId) })),
+    }))
+  }
+
+  /**
+   * Which pile a book belongs on, judged from its reads: an open read decides; otherwise the
+   * most recent finished or abandoned one does. With no reads left, the book goes back to
+   * Want to read.
+   */
+  const statusFromReads = (reads: Read[], current: Status): Status => {
+    const open = [...reads].reverse().find((r) => r.state === 'reading' || r.state === 'paused')
+    if (open) return open.state === 'paused' ? 'paused' : 'reading'
+    const done = reads.filter((r) => r.state === 'finished' || r.state === 'dnf')
+      .sort((x, y) => (x.finishedOn ?? x.startedOn ?? '').localeCompare(y.finishedOn ?? y.startedOn ?? ''))
+    const last = done[done.length - 1]
+    if (last) return last.state === 'finished' ? 'read' : 'dnf'
+    // No reads left: the book hasn't been started (yet).
+    return reads.length ? current : 'want'
+  }
+  const syncStatus = (entryId: string) => {
+    const entry = entryNow(entryId)
+    if (!entry) return
+    const reads = readsNow(entryId)
+    const status = statusFromReads(reads, entry.status)
+    // The book's rating follows its most recent finished read.
+    const lastRated = reads.filter((r) => r.state === 'finished' && r.rating)
+      .sort((x, y) => (x.finishedOn ?? '').localeCompare(y.finishedOn ?? '')).pop()
+    const patch: Partial<Entry> = {}
+    if (status !== entry.status) patch.status = status
+    if (lastRated && lastRated.rating !== entry.rating) patch.rating = lastRated.rating
+    if (Object.keys(patch).length) store.updateEntry(entryId, patch)
+  }
+
+  /** Progress in one edition's units (pages, minutes or %) re-expressed in another's. */
+  const convertProgress = (value: number | undefined, from?: Edition, to?: Edition) => {
+    if (value == null) return value
+    const total = (e?: Edition) => (e ? (mediumOf(e.format) === 'audio' ? e.durationMin : e.pages) : undefined)
+    const a = total(from), b = total(to)
+    const frac = a ? value / a : value / 100
+    return Math.round(Math.min(1, Math.max(0, frac)) * (b ?? 100))
+  }
+
   const store: Store = {
     ready, backend, data, works, editions, entries, entryByWork, editionsByWork, readsByEntry, activeRead,
     isAdmin, userId,
@@ -258,33 +356,36 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
       const edition: Edition = knownEdition
         ? knownEdition
         : { ...b.edition, id: b.edition.id ?? uid(), workId: work.id, createdAt: t, createdBy: userId }
-      const prev = entryByWork.get(work.id)
+      const prev = live.current.entries.find((e) => e.workId === work.id)
+      // Already on your shelves: keep its pile unless this add says it moved along.
       const entry: Entry = prev
-        ? { ...prev, editionId: edition.id, status: b.status, updatedAt: t }
+        ? { ...prev, editionId: edition.id, status: b.status === 'want' ? prev.status : b.status, updatedAt: t }
         : {
           id: uid(), workId: work.id, editionId: edition.id, status: b.status, rating: b.rating, favorite: false,
           owned: false, tags: [], shelfIds: [], addedAt: t, updatedAt: t,
         }
+      const hasOpen = prev ? readsNow(prev.id).some((r) => r.state === 'reading' || r.state === 'paused') : false
       const newRead: Read | undefined =
-        b.status === 'read' || b.status === 'reading' || b.status === 'dnf'
+        (b.status === 'read' || b.status === 'dnf' || (b.status === 'reading' && !hasOpen))
           ? {
             id: uid(), entryId: entry.id, editionId: edition.id,
             state: b.status === 'read' ? 'finished' : b.status === 'dnf' ? 'dnf' : 'reading',
             startedOn: b.startedOn ?? (b.status === 'reading' ? today() : undefined),
-            finishedOn: b.status === 'read' ? b.finishedOn ?? today() : undefined,
+            finishedOn: b.status === 'read' ? b.finishedOn : undefined,
             rating: b.rating,
           }
           : undefined
-      if (!works.has(work.id)) upsertIn('works', work)
-      if (!editions.has(edition.id)) upsertIn('editions', edition)
+      if (!live.current.works.some((x) => x.id === work.id)) upsertIn('works', work)
+      if (!live.current.editions.some((x) => x.id === edition.id)) upsertIn('editions', edition)
       upsertIn('entries', entry)
       if (newRead) upsertIn('reads', newRead)
-      persist(async (be) => {
-        if (!existing) await be.saveWork(work)
-        if (!knownEdition) await be.saveEdition(edition)
-        await be.saveEntry(entry)
-        if (newRead) await be.saveRead(newRead)
-      })
+      // One bulk save, so an ISBN that's already in the shared catalogue is reused, not rejected.
+      persist((be) => be.saveMany({
+        works: existing ? [] : [work],
+        editions: knownEdition ? [] : [edition],
+        entries: [entry],
+        reads: newRead ? [newRead] : [],
+      })).then((remap) => { if (remap) applyRemap(remap) })
       return entry
     },
 
@@ -295,8 +396,8 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
     remember(ws, es) {
       setData((d) => ({
         ...d,
-        works: [...d.works, ...ws.filter((w) => !works.has(w.id))],
-        editions: [...d.editions, ...es.filter((e) => !editions.has(e.id))],
+        works: [...d.works, ...ws.filter((w) => !d.works.some((x) => x.id === w.id))],
+        editions: [...d.editions, ...es.filter((e) => !d.editions.some((x) => x.id === e.id))],
       }))
     },
     saveEdition(e) {
@@ -304,17 +405,17 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
       persist((b) => b.saveEdition(e))
     },
     updateEntry(id, patch) {
-      const cur = entries.get(id)
+      const cur = entryNow(id)
       if (!cur) return
       const next = { ...cur, ...patch, updatedAt: nowIso() }
       upsertIn('entries', next)
       persist((b) => b.saveEntry(next))
     },
     removeEntry(id) {
-      const entry = entries.get(id)
-      const reads = data.reads.filter((r) => r.entryId === id)
+      const entry = entryNow(id)
+      const reads = live.current.reads.filter((r) => r.entryId === id)
       const readIds = new Set(reads.map((r) => r.id))
-      const logs = data.logs.filter((l) => readIds.has(l.readId))
+      const logs = live.current.logs.filter((l) => readIds.has(l.readId))
       setData((d) => ({
         ...d,
         entries: d.entries.filter((e) => e.id !== id),
@@ -345,11 +446,12 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
     },
 
     setStatus(entryId, status) {
-      const entry = entries.get(entryId)
+      const entry = entryNow(entryId)
       if (!entry) return
-      const reads = readsByEntry.get(entryId) ?? []
+      const reads = readsNow(entryId)
       const open = reads.find((r) => r.state === 'reading' || r.state === 'paused')
       let changed: Read | undefined
+      let removed: Read | undefined
       if (status === 'reading') {
         if (open) changed = { ...open, state: 'reading' }
         else changed = { id: uid(), entryId, editionId: entry.editionId, state: 'reading', startedOn: today() }
@@ -360,58 +462,92 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
             ? undefined
             : { id: uid(), entryId, editionId: entry.editionId, state: 'finished', finishedOn: today() }
       } else if ((status === 'dnf' || status === 'paused') && open) {
-        changed = { ...open, state: status }
+        changed = { ...open, state: status, finishedOn: status === 'dnf' ? open.finishedOn ?? today() : open.finishedOn }
+      } else if (status === 'want' && open) {
+        // Back to the wish list: a read that never got going is dropped; one with progress is
+        // kept in your history as set aside.
+        const logged = live.current.logs.some((l) => l.readId === open.id)
+        if (!logged && !open.progress) removed = open
+        else changed = { ...open, state: 'dnf', finishedOn: open.finishedOn ?? today() }
       }
       if (changed) {
         const c = changed
         upsertIn('reads', c)
         persist((b) => b.saveRead(c))
       }
+      if (removed) {
+        const id = removed.id
+        setData((d) => ({ ...d, reads: d.reads.filter((r) => r.id !== id) }))
+        persist((b) => b.deleteRead(id))
+      }
       store.updateEntry(entryId, { status })
     },
 
+    draftRead(entryId, editionId) {
+      const entry = entryNow(entryId) ?? entries.get(entryId)
+      return { id: uid(), entryId, editionId: editionId ?? entry?.editionId, state: 'reading', startedOn: today() }
+    },
     startRead(entryId, editionId) {
-      const entry = entries.get(entryId)!
-      const r: Read = { id: uid(), entryId, editionId: editionId ?? entry.editionId, state: 'reading', startedOn: today() }
-      upsertIn('reads', r)
-      persist((b) => b.saveRead(r))
-      store.updateEntry(entryId, { status: 'reading', editionId: r.editionId })
+      const r = store.draftRead(entryId, editionId)
+      store.saveRead(r)
       return r
     },
     saveRead(r) {
+      const isNew = !live.current.reads.some((x) => x.id === r.id)
       upsertIn('reads', r)
       persist((b) => b.saveRead(r))
-      // Keep the pile in sync with the latest read.
-      const entry = entries.get(r.entryId)
-      if (!entry) return
-      const all = (readsByEntry.get(r.entryId) ?? []).filter((x) => x.id !== r.id).concat(r)
-      const open = all.find((x) => x.state === 'reading')
-      const status: Status = open ? 'reading' : r.state === 'finished' ? 'read' : r.state === 'dnf' ? 'dnf' : r.state === 'paused' ? 'paused' : entry.status
-      const patch: Partial<Entry> = {}
-      if (status !== entry.status) patch.status = status
-      if (r.rating && r.state === 'finished') patch.rating = r.rating
-      if (Object.keys(patch).length) store.updateEntry(entry.id, patch)
+      // A new read in a different edition makes that edition yours.
+      const entry = entryNow(r.entryId)
+      if (isNew && entry && r.editionId && r.editionId !== entry.editionId && r.state === 'reading') store.updateEntry(entry.id, { editionId: r.editionId })
+      syncStatus(r.entryId)
     },
     deleteRead(id) {
-      setData((d) => ({ ...d, reads: d.reads.filter((r) => r.id !== id), logs: d.logs.filter((l) => l.readId !== id) }))
+      const r = live.current.reads.find((x) => x.id === id)
+      setData((d) => ({ ...d, reads: d.reads.filter((x) => x.id !== id), logs: d.logs.filter((l) => l.readId !== id) }))
       persist((b) => b.deleteRead(id))
+      if (r) syncStatus(r.entryId)
+    },
+    chooseEdition(entryId, editionId) {
+      const entry = entryNow(entryId)
+      if (!entry || entry.editionId === editionId) return
+      // Carry a read in progress over to the new edition, keeping how far through you are.
+      const open = readsNow(entryId).find((r) => r.state === 'reading' || r.state === 'paused')
+      if (open) {
+        const from = live.current.editions.find((e) => e.id === (open.editionId ?? entry.editionId))
+        const to = live.current.editions.find((e) => e.id === editionId)
+        const next: Read = { ...open, editionId, progress: convertProgress(open.progress, from, to) }
+        upsertIn('reads', next)
+        persist((b) => b.saveRead(next))
+      }
+      store.updateEntry(entryId, { editionId })
     },
     logProgress(readId, value) {
-      const r = data.reads.find((x) => x.id === readId)
+      const r = live.current.reads.find((x) => x.id === readId)
       if (!r) return
-      const entry = entries.get(r.entryId)
-      const ed = editions.get(r.editionId ?? entry?.editionId ?? '')
+      const entry = entryNow(r.entryId)
+      const ed = live.current.editions.find((e) => e.id === (r.editionId ?? entry?.editionId))
       const delta = value - (r.progress ?? 0)
       const next: Read = { ...r, progress: value }
       upsertIn('reads', next)
       persist((b) => b.saveRead(next))
       if (delta !== 0) {
+        // Logs are in pages or minutes. Progress kept as a percentage (no page count known) is
+        // converted using another edition's length when there is one; otherwise the day still
+        // counts as a reading day, without inventing a number of pages.
+        const audio = mediumOf(ed?.format) === 'audio'
+        const total = audio ? ed?.durationMin : ed?.pages
+        let amount = delta
+        if (!total && entry) {
+          const sibling = live.current.editions.find((e) => e.workId === entry.workId && (audio ? e.durationMin : e.pages))
+          const len = sibling ? (audio ? sibling.durationMin : sibling.pages) : undefined
+          amount = len ? Math.round((delta / 100) * len) : 0
+        }
         // One log row per read per day; repeated updates adjust it.
         const day = today()
-        const existing = data.logs.find((l) => l.readId === readId && l.on === day)
+        const existing = live.current.logs.find((l) => l.readId === readId && l.on === day)
         const log: LogPoint = existing
-          ? { ...existing, amount: existing.amount + delta }
-          : { id: uid(), readId, on: day, amount: delta, medium: mediumOf(ed?.format) }
+          ? { ...existing, amount: existing.amount + amount }
+          : { id: uid(), readId, on: day, amount, medium: mediumOf(ed?.format) }
         upsertIn('logs', log)
         persist((b) => b.saveLog(log))
       }
@@ -422,23 +558,34 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
       persist((b) => b.saveShelf(s))
     },
     deleteShelf(id) {
+      const t = nowIso()
+      const touched = live.current.entries.filter((e) => e.shelfIds.includes(id)).map((e) => ({ ...e, shelfIds: e.shelfIds.filter((x) => x !== id), updatedAt: t }))
       setData((d) => ({
         ...d,
         shelves: d.shelves.filter((s) => s.id !== id),
-        entries: d.entries.map((e) => (e.shelfIds.includes(id) ? { ...e, shelfIds: e.shelfIds.filter((x) => x !== id) } : e)),
+        entries: d.entries.map((e) => touched.find((x) => x.id === e.id) ?? e),
       }))
-      persist((b) => b.deleteShelf(id))
+      // Take the books off the shelf too, so the old shelf doesn't linger in their records.
+      persist(async (b) => {
+        if (touched.length) await b.saveMany({ entries: touched })
+        await b.deleteShelf(id)
+      })
     },
     saveSettings(patch) {
-      const next = { ...data.settings, ...patch }
+      const next = { ...live.current.settings, ...patch }
       setData((d) => ({ ...d, settings: next }))
       persist((b) => b.saveSettings(next))
     },
     async importData(part) {
       const b = be.current
       if (!b) return
-      await b.saveMany(part)
-      setData(await b.loadAll())
+      await chain.current // let earlier changes land first
+      try {
+        await b.saveMany(part)
+      } finally {
+        // Even if it stopped part-way, show what did arrive so a retry matches it instead of duplicating it.
+        setData(await b.loadAll())
+      }
     },
     async wipe() {
       const b = be.current
@@ -455,12 +602,13 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
         titles: src.works.map((w) => w.title),
       }).catch(() => ({ works: [], editions: [] }))
       const into = {
-        works: [...data.works, ...catalogue.works.filter((w) => !works.has(w.id))],
-        editions: [...data.editions, ...catalogue.editions.filter((e) => !editions.has(e.id))],
-        entries: data.entries,
-        shelves: data.shelves,
+        works: [...live.current.works, ...catalogue.works.filter((w) => !live.current.works.some((x) => x.id === w.id))],
+        editions: [...live.current.editions, ...catalogue.editions.filter((e) => !live.current.editions.some((x) => x.id === e.id))],
+        entries: live.current.entries,
+        shelves: live.current.shelves,
       }
       const res = mergeLibrary(src, into)
+      await chain.current
       await b.saveMany(res.data)
       setData(await b.loadAll())
       return { books: res.books, matched: res.matched }
@@ -468,9 +616,21 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
     deviceBooks,
     pending,
     async moveDeviceBooks() {
+      const b = be.current as OfflineBackend | null
+      if (!b || b.kind !== 'cloud') return 0
+      // Only clear this device once the books are safely in your account.
+      if ((typeof navigator !== 'undefined' && navigator.onLine === false) || (b.pending() && (await b.flush(), b.pending()))) {
+        throw new Error('You’re offline. Moving your books needs a connection, so they’re staying on this device for now.')
+      }
       const local = createLocalBackend()
       const snap = await local.loadAll()
-      const res = await store.mergeIn(snap)
+      // Cover photos taken on this device are stored in the browser; upload them so they come along.
+      const editions = await Promise.all(snap.editions.map(async (e) => {
+        if (!e.coverUrl?.startsWith('data:')) return e
+        try { return { ...e, coverUrl: await b.uploadCover(await (await fetch(e.coverUrl)).blob()) } } catch { return e }
+      }))
+      const res = await store.mergeIn({ ...snap, editions })
+      if (b.pending()) throw new Error('Some books couldn’t be sent yet. They’re still on this device; try again when you’re back online.')
       await local.wipe()
       setDeviceBooks(0)
       return res.books
@@ -480,6 +640,7 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
       else try { localStorage.setItem(DEVICE_DISMISSED_KEY, String(deviceBooks)) } catch { /* storage blocked */ }
       setDeviceBooks(0)
     },
+    movedTo: (workId) => moved.current.get(workId),
     async loadWork(id) {
       if (works.has(id)) return true
       const found = await be.current?.fetchWork(id).catch(() => null)

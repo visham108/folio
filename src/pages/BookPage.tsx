@@ -14,7 +14,7 @@ import { averageColor } from '../lib/image'
 import { progressInfo } from '../lib/progress'
 import { seriesSlug } from '../lib/series'
 import { FORMATS, MOODS, PACES, STATUSES, type Edition, type Pace, type Read, type ReadState, type Status } from '../lib/types'
-import { coverPalette, daysBetween, fmtDate, fmtDuration, plural, today } from '../lib/util'
+import { coverPalette, daysBetween, fmtDate, fmtDuration, localIso, plural, today } from '../lib/util'
 import { useStore } from '../state/store'
 import { useToast } from '../state/toast'
 
@@ -55,7 +55,49 @@ export function BookPage() {
     store.loadWork(workId).then((ok) => setLookup(ok ? 'idle' : 'missing'))
   }, [workId, !!work]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // A book you added that other readers now have can only be changed by the admin.
+  const [sharedLock, setSharedLock] = useState(false)
+  useEffect(() => {
+    setSharedLock(false)
+    const w = works.get(workId)
+    if (!w || store.isAdmin || store.backend?.kind !== 'cloud' || w.createdBy !== store.userId) return
+    let live = true
+    store.backend.sharedWorks([workId]).then((ids) => { if (live) setSharedLock(ids.includes(workId)) }).catch(() => {})
+    return () => { live = false }
+  }, [workId, !!works.get(workId)]) // eslint-disable-line react-hooks/exhaustive-deps
+  const canEditWork = (rec?: { createdBy?: string }) => store.canEdit(rec) && !sharedLock
+
   const fallbackAmb = useMemo(() => (work ? coverPalette(work.title + (work.authors[0] ?? ''))[0] : '#888'), [work])
+
+  // Matched to a book already in the catalogue after you added it: follow it there.
+  const movedTo = !work ? store.movedTo(workId) : undefined
+  useEffect(() => { if (movedTo) nav(`/book/${movedTo}`, { replace: true }) }, [movedTo]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Status menu: Escape or a click outside closes it; arrow keys move through it; near the
+  // bottom of a phone screen it opens upwards so the tab bar doesn't cover it.
+  const statusRef = useRef<HTMLDivElement>(null)
+  const [menuUp, setMenuUp] = useState(false)
+  useEffect(() => {
+    if (!statusOpen) return
+    const wrap = statusRef.current
+    if (wrap) setMenuUp(wrap.getBoundingClientRect().bottom + 300 > window.innerHeight - 90)
+    const items = () => [...(wrap?.querySelectorAll<HTMLElement>('[role=menuitemradio]') ?? [])]
+    setTimeout(() => (items().find((b) => b.getAttribute('aria-checked') === 'true') ?? items()[0])?.focus(), 30)
+    const onDown = (e: PointerEvent) => { if (wrap && !wrap.contains(e.target as Node)) setStatusOpen(false) }
+    const onKey = (e: KeyboardEvent) => {
+      const list = items()
+      const i = list.indexOf(document.activeElement as HTMLElement)
+      if (e.key === 'Escape') { setStatusOpen(false); wrap?.querySelector<HTMLElement>('.status-btn')?.focus() }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); list[(i + 1) % list.length]?.focus() }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); list[(i - 1 + list.length) % list.length]?.focus() }
+      else if (e.key === 'Home') { e.preventDefault(); list[0]?.focus() }
+      else if (e.key === 'End') { e.preventDefault(); list[list.length - 1]?.focus() }
+      else if (e.key === 'Tab') setStatusOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('pointerdown', onDown); document.removeEventListener('keydown', onKey) }
+  }, [statusOpen])
 
   if (!work) {
     if (lookup !== 'missing') return <div className="page page-loading" aria-busy="true" />
@@ -95,7 +137,7 @@ export function BookPage() {
           </div>
 
           <div className="book-info">
-            {work.series && <Link to={`/series/${seriesSlug(work.series)}`} className="eyebrow series-eyebrow">{work.series}{work.seriesIndex ? ` · Book ${work.seriesIndex}` : ''} →</Link>}
+            {work.series && <Link to={`/series/${seriesSlug(work.series)}`} className="eyebrow series-eyebrow">{work.series}{work.seriesIndex != null ? ` · Book ${work.seriesIndex}` : ''} →</Link>}
             <h1 className="book-title">{work.title}</h1>
             {work.subtitle && <p className="book-sub">{work.subtitle}</p>}
             <p className="book-by">by {work.authors.join(', ')}</p>
@@ -108,14 +150,14 @@ export function BookPage() {
             {work.genres.length > 0 && <div className="genres">{work.genres.map((g) => <span key={g} className="pill">{g}</span>)}</div>}
 
             <div className="book-actions">
-              <div className="status-wrap">
+              <div className="status-wrap" ref={statusRef}>
                 <button className={`btn status-btn ${status ? 'st-' + status : 'btn-primary'}`} onClick={() => setStatusOpen((o) => !o)} aria-haspopup="menu" aria-expanded={statusOpen}>
-                  {status ? <><Check size={16} /> {STATUSES.find((s) => s.id === status)?.label}</> : <><Plus size={16} /> Add to library</>}
+                  {status ? <>{STATUSES.find((s) => s.id === status)?.label}</> : <><Plus size={16} /> Add to library</>}
                   <ChevronDown size={16} />
                 </button>
                 <AnimatePresence>
                   {statusOpen && (
-                    <motion.div className="menu" role="menu" initial={{ opacity: 0, y: -6, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4 }}>
+                    <motion.div className={`menu ${menuUp ? 'menu-up' : ''}`} role="menu" aria-label="Move to pile" initial={{ opacity: 0, y: -6, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4 }}>
                       {STATUSES.map((s) => (
                         <button key={s.id} role="menuitemradio" aria-checked={status === s.id} onClick={() => setStatus(s.id)}>
                           {s.label}{status === s.id && <Check size={14} />}
@@ -127,7 +169,14 @@ export function BookPage() {
               </div>
               {entry && (
                 <>
-                  <Stars value={entry.rating} onChange={(v) => store.updateEntry(entry.id, { rating: v })} size={24} label="Your rating" />
+                  {(status === 'read' || status === 'dnf' || finished.length > 0) && (
+                    <Stars value={entry.rating} size={24} label="Your rating" onChange={(v) => {
+                      // The book's rating is the rating of your latest read, so the two never disagree.
+                      const last = [...finished].sort((a, b) => (a.finishedOn ?? '').localeCompare(b.finishedOn ?? '')).pop()
+                      if (last) store.saveRead({ ...last, rating: v })
+                      store.updateEntry(entry.id, { rating: v })
+                    }} />
+                  )}
                   <button
                     className={`icon-btn heart ${entry.favorite ? 'on' : ''}`}
                     aria-pressed={entry.favorite}
@@ -175,7 +224,7 @@ export function BookPage() {
               const mine = entry?.editionId === e.id
               return (
                 <div key={e.id} className={`edition ${mine ? 'mine' : ''}`}>
-                  <button className="edition-pick" onClick={() => entry && store.updateEntry(entry.id, { editionId: e.id })} disabled={!entry} title={entry ? 'Make this your edition' : undefined}>
+                  <button className="edition-pick" onClick={() => entry && store.chooseEdition(entry.id, e.id)} disabled={!entry} title={entry ? 'Make this your edition' : undefined}>
                     <Cover work={work} edition={e} size="sm" />
                     <div className="edition-meta">
                       <b>{fmtIcon(e.format)} {fmtLabel(e.format)}</b>
@@ -185,12 +234,12 @@ export function BookPage() {
                       {e.title && e.title !== work.title && <span className="muted">“{e.title}”</span>}
                       <span className="muted tiny attribution">
                         {store.backend?.kind === 'cloud' && (e.createdBy === store.userId ? 'Added by you' : 'Added by another reader')}
-                        {e.updatedAt && ` · edited ${fmtDate(e.updatedAt.slice(0, 10))}`}
+                        {e.updatedAt && ` · edited ${fmtDate(localIso(new Date(e.updatedAt)))}`}
                       </span>
                     </div>
                     {mine && <span className="pill tiny mine-pill">Your edition</span>}
                   </button>
-                  {store.canEdit(e) && (
+                  {canEditWork(e) && (
                     <button className="icon-btn edition-edit" aria-label="Edit edition" onClick={() => setEditEdition(e)}><Pencil size={14} /></button>
                   )}
                 </div>
@@ -203,13 +252,11 @@ export function BookPage() {
           <section className="section">
             <div className="section-head">
               <h2>Reading history</h2>
-              <button className="link" onClick={() => {
-                const r = store.startRead(entry.id)
-                toast(finished.length ? `Reread #${finished.length + 1} started` : 'Started reading')
-                setEditRead(r)
-              }}>
-                <RotateCcw size={14} /> {finished.length ? 'Start a reread' : 'Log a read'}
-              </button>
+              {!active && (
+                <button className="link" onClick={() => setEditRead(store.draftRead(entry.id))}>
+                  <RotateCcw size={14} /> {finished.length ? 'Start a reread' : 'Log a read'}
+                </button>
+              )}
             </div>
             {finished.length > 0 && (
               <p className="muted history-sum">
@@ -221,7 +268,7 @@ export function BookPage() {
               </p>
             )}
             {reads.length === 0 ? (
-              <p className="muted">No reads logged yet. Use <b>Log a read</b> to add dates from the past.</p>
+              <p className="muted">No reads logged yet. Use <b>Log a read</b> to record one, with dates if you remember them.</p>
             ) : (
               <ol className="timeline">
                 {[...reads].reverse().map((r) => {
@@ -239,7 +286,7 @@ export function BookPage() {
                         </div>
                         <div className="muted small">
                           {r.startedOn || r.finishedOn
-                            ? <>{r.startedOn ? fmtDate(r.startedOn) : '?'} → {r.finishedOn ? fmtDate(r.finishedOn) : r.state === 'reading' ? 'now' : '?'}{days ? ` · ${plural(days, 'day')}` : ''}</>
+                            ? <>{r.startedOn ? fmtDate(r.startedOn) : 'Start unknown'} → {r.finishedOn ? fmtDate(r.finishedOn) : r.state === 'reading' ? 'now' : r.state === 'paused' ? 'paused' : r.state === 'dnf' ? 'set aside' : 'end unknown'}{days ? ` · ${plural(days, 'day')}` : ''}</>
                             : 'No dates'}
                         </div>
                         {r.notes && <p className="tl-notes">{r.notes}</p>}
@@ -252,7 +299,7 @@ export function BookPage() {
           </section>
         )}
 
-        {entry && (
+        {entry && (status !== 'want' || (entry.moods ?? []).length > 0 || entry.pace) && (
           <section className="section">
             <div className="section-head">
               <h2>How it felt</h2>
@@ -333,10 +380,12 @@ export function BookPage() {
         {store.isAdmin && store.backend?.kind === 'cloud' && <AdminPanel work={work} editions={eds} />}
 
         <section className="section foot-actions">
-          {store.canEdit(work) ? (
+          {canEditWork(work) ? (
             <button className="btn btn-ghost sm" onClick={() => setEditWork(true)}><Pencil size={14} /> Edit book details</button>
           ) : (
-            <span className="muted small lock-note"><Lock size={13} /> Added by another reader, so only they or the admin can edit the details.</span>
+            <span className="muted small lock-note"><Lock size={13} /> {sharedLock
+              ? 'Other readers have this book now, so only the admin can change its details.'
+              : 'Added by another reader, so only they or the admin can edit the details.'}</span>
           )}
           {entry && (
             <button className="btn btn-ghost sm danger" onClick={() => setConfirmRemove(true)}><Trash2 size={14} /> Remove from library</button>
@@ -392,52 +441,93 @@ export function BookPage() {
   )
 }
 
+/** Progress in one edition's units (pages, minutes or %) re-expressed in another's. */
+function convertProgress(value: number | undefined, from?: Edition, to?: Edition) {
+  if (value == null) return value
+  const total = (e?: Edition) => (e ? (e.format === 'audiobook' ? e.durationMin : e.pages) : undefined)
+  const a = total(from), b = total(to)
+  const frac = a ? value / a : value / 100
+  return Math.round(Math.min(1, Math.max(0, frac)) * (b ?? 100))
+}
+
 function ReadEditor({ read, editions, onClose }: { read: Read | null; editions: Edition[]; onClose: () => void }) {
   const store = useStore()
+  const toast = useToast()
   const [r, setR] = useState<Read | null>(read)
-  useEffect(() => setR(read), [read])
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  useEffect(() => { setR(read); setConfirmDelete(false) }, [read])
   if (!r) return <Sheet open={false} onClose={onClose}>{null}</Sheet>
+  // A read opened from "Log a read" isn't saved until you press Save.
+  const isNew = !store.data.reads.some((x) => x.id === r.id)
   const set = (p: Partial<Read>) => setR({ ...r, ...p })
   const dateError =
     r.startedOn && r.finishedOn && r.startedOn.length === 10 && r.finishedOn.length === 10 && r.finishedOn < r.startedOn
       ? 'The finish date is before the start date.'
       : (r.startedOn ?? '') > today() || (r.finishedOn ?? '') > today() ? 'Dates can’t be in the future.' : ''
+  const save = () => {
+    store.saveRead(r)
+    if (isNew) {
+      const done = (store.readsByEntry.get(r.entryId) ?? []).filter((x) => x.state === 'finished').length
+      toast(r.state === 'reading' ? (done ? `Reread #${done + 1} started` : 'Started reading') : 'Read added')
+    }
+    onClose()
+  }
   return (
     <Sheet
       open={!!read}
       onClose={onClose}
-      title="Edit read"
+      title={isNew ? 'Log a read' : 'Edit read'}
       footer={
-        <>
-          <button className="btn btn-ghost danger" onClick={() => { store.deleteRead(r.id); onClose() }}><Trash2 size={14} /> Delete</button>
-          <button className="btn btn-primary" disabled={!!dateError} onClick={() => { store.saveRead(r); onClose() }}>Save</button>
-        </>
+        confirmDelete ? (
+          <>
+            <span className="muted small confirm-q">Delete this read and its progress?</span>
+            <button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>Keep</button>
+            <button className="btn btn-danger" onClick={() => { store.deleteRead(r.id); toast('Read deleted'); onClose() }}><Trash2 size={14} /> Delete</button>
+          </>
+        ) : (
+          <>
+            {!isNew && <button className="btn btn-ghost danger" onClick={() => setConfirmDelete(true)}><Trash2 size={14} /> Delete</button>}
+            <button className="btn btn-primary" disabled={!!dateError} onClick={save}>{isNew ? 'Add read' : 'Save'}</button>
+          </>
+        )
       }
     >
       <div className="form-grid">
         <Field label="State" className="span-2">
           <Segmented<ReadState>
             value={r.state}
-            onChange={(state) => set({ state })}
+            onChange={(state) => set({
+              state,
+              // Finishing (or giving up) needs an end date for the stats; today is the likely one.
+              finishedOn: (state === 'finished' || state === 'dnf') && !r.finishedOn ? today() : state === 'reading' || state === 'paused' ? undefined : r.finishedOn,
+            })}
             options={[{ id: 'reading', label: 'Reading' }, { id: 'finished', label: 'Finished' }, { id: 'paused', label: 'Paused' }, { id: 'dnf', label: 'DNF' }]}
           />
         </Field>
         <Field label="Started" hint="Leave blank if you don’t remember">
           <input className="input" type="date" max={today()} value={r.startedOn?.length === 10 ? r.startedOn : ''} onChange={(e) => set({ startedOn: e.target.value || undefined })} />
         </Field>
-        <Field label="Finished">
-          <input className="input" type="date" max={today()} min={r.startedOn?.length === 10 ? r.startedOn : undefined} value={r.finishedOn?.length === 10 ? r.finishedOn : ''} onChange={(e) => set({ finishedOn: e.target.value || undefined })} />
-        </Field>
+        {(r.state === 'finished' || r.state === 'dnf') && (
+          <Field label={r.state === 'dnf' ? 'Set aside on' : 'Finished'}>
+            <input className="input" type="date" max={today()} min={r.startedOn?.length === 10 ? r.startedOn : undefined} value={r.finishedOn?.length === 10 ? r.finishedOn : ''} onChange={(e) => set({ finishedOn: e.target.value || undefined })} />
+          </Field>
+        )}
         {dateError && <p className="err small span-2">{dateError}</p>}
         {r.finishedOn && r.finishedOn.length < 10 && <p className="muted small span-2">Imported as “{r.finishedOn}”. Pick a full date to replace it.</p>}
         <Field label="Edition" className="span-2">
-          <select className="select" value={r.editionId ?? ''} onChange={(e) => set({ editionId: e.target.value || undefined })}>
+          <select className="select" value={r.editionId ?? ''} onChange={(e) => {
+            const to = editions.find((x) => x.id === e.target.value)
+            const from = editions.find((x) => x.id === r.editionId)
+            set({ editionId: e.target.value || undefined, progress: convertProgress(r.progress, from, to) })
+          }}>
             {editions.map((e) => <option key={e.id} value={e.id}>{fmtLabel(e.format)}{e.publisher ? ` · ${e.publisher}` : ''}{edLength(e) ? ` · ${edLength(e)}` : ''}</option>)}
           </select>
         </Field>
-        <Field label="Rating for this read" className="span-2">
-          <Stars value={r.rating} onChange={(rating) => set({ rating })} size={28} />
-        </Field>
+        {(r.state === 'finished' || r.state === 'dnf') && (
+          <Field label="Rating for this read" className="span-2">
+            <Stars value={r.rating} onChange={(rating) => set({ rating })} size={28} />
+          </Field>
+        )}
         <Field label="Notes" className="span-2">
           <textarea className="input" rows={3} value={r.notes ?? ''} onChange={(e) => set({ notes: e.target.value || undefined })} placeholder="What stood out this time?" />
         </Field>
@@ -450,19 +540,28 @@ function WorkEditor({ open, onClose, workId }: { open: boolean; onClose: () => v
   const store = useStore()
   const w = store.works.get(workId)
   const [d, setD] = useState(w)
-  useEffect(() => { if (open) setD(store.works.get(workId)) }, [open, workId]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Kept as typed ("2.", "0") and read as a number on save, so 2.5 and Book 0 can be entered.
+  const [indexText, setIndexText] = useState('')
+  useEffect(() => {
+    if (!open) return
+    const cur = store.works.get(workId)
+    setD(cur)
+    setIndexText(cur?.seriesIndex != null ? String(cur.seriesIndex) : '')
+  }, [open, workId]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!d) return null
-  const ok = d.title.trim() && d.authors.length
+  const index = indexText.trim() === '' ? undefined : Number(indexText.replace(',', '.'))
+  const indexBad = index != null && !Number.isFinite(index)
+  const ok = d.title.trim() && d.authors.length && !indexBad
   return (
     <Sheet open={open} onClose={onClose} title="Book details" wide footer={
-      <button className="btn btn-primary" disabled={!ok} onClick={() => { store.saveWork({ ...d, title: titleCase(d.title), subtitle: d.subtitle ? titleCase(d.subtitle) : undefined }); onClose() }}>Save</button>
+      <button className="btn btn-primary" disabled={!ok} onClick={() => { store.saveWork({ ...d, seriesIndex: index, title: titleCase(d.title), subtitle: d.subtitle ? titleCase(d.subtitle) : undefined }); onClose() }}>Save</button>
     }>
       <div className="form-grid">
         <Field label="Title" required className="span-2"><input className="input" value={d.title} onChange={(e) => setD({ ...d, title: e.target.value })} onBlur={(e) => setD({ ...d, title: titleCase(e.target.value) })} /></Field>
         <Field label="Subtitle" className="span-2"><input className="input" value={d.subtitle ?? ''} onChange={(e) => setD({ ...d, subtitle: e.target.value || undefined })} onBlur={(e) => setD({ ...d, subtitle: titleCase(e.target.value) || undefined })} /></Field>
         <Field label="Authors" required className="span-2"><Chips value={d.authors} onChange={(authors) => setD({ ...d, authors })} normalize={nameCase} /></Field>
         <Field label="Series"><input className="input" value={d.series ?? ''} onChange={(e) => setD({ ...d, series: e.target.value || undefined })} onBlur={(e) => setD({ ...d, series: titleCase(e.target.value) || undefined })} /></Field>
-        <Field label="Number in series"><input className="input" inputMode="decimal" value={d.seriesIndex ?? ''} onChange={(e) => setD({ ...d, seriesIndex: parseFloat(e.target.value) || undefined })} /></Field>
+        <Field label="Number in series" hint={indexBad ? 'Use a number, like 2 or 2.5' : undefined}><input className="input" inputMode="decimal" value={indexText} onChange={(e) => setIndexText(e.target.value)} /></Field>
         <Field label="First published"><input className="input" inputMode="numeric" value={d.firstPublished ?? ''} onChange={(e) => setD({ ...d, firstPublished: parseInt(e.target.value) || undefined })} /></Field>
         <Field label="Original language"><input className="input" value={d.originalLanguage ?? ''} onChange={(e) => setD({ ...d, originalLanguage: e.target.value || undefined })} /></Field>
         <Field label="Genres" className="span-2"><Chips value={d.genres} onChange={(genres) => setD({ ...d, genres })} normalize={titleCase} /></Field>

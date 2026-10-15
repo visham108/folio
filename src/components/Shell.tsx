@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { BarChart3, BookOpen, Home, Library, Plus, Settings } from 'lucide-react'
 import { Suspense } from 'react'
-import { NavLink, useLocation, useNavigate, useOutlet } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate, useOutlet } from 'react-router-dom'
 import { useStore } from '../state/store'
 import { Ring } from './ui'
 import { useYearProgress } from '../pages/hooks'
@@ -38,13 +38,13 @@ export function Shell() {
         <button className="btn btn-primary add-btn" onClick={() => nav('/add')}>
           <Plus size={18} /> Add a book
         </button>
-        <div className="side-goal" onClick={() => nav('/stats')} role="link" tabIndex={0}>
+        <Link className="side-goal" to="/stats">
           <Ring pct={yp.pct} size={52} stroke={5}><span className="ring-mini">{yp.done}</span></Ring>
           <div>
             <div className="side-goal-t">{yp.year} goal</div>
             <div className="muted small">{yp.done} of {data.settings.yearlyGoal} books</div>
           </div>
-        </div>
+        </Link>
         <div className="side-foot muted small">{backend?.kind === 'cloud' ? backend.userLabel : 'Saved on this device'}</div>
       </aside>
 

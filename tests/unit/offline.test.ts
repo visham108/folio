@@ -18,11 +18,13 @@ function fakeBackend() {
   return { b, state }
 }
 
+let n = 0
+
 describe('offline outbox', () => {
   it('queues writes while offline and sends them in order once back', async () => {
     const { b, state } = fakeBackend()
     const counts: number[] = []
-    const off = await withOffline(b, 'u1', { onQueue: (n) => counts.push(n), onDropped: () => {} })
+    const off = await withOffline(b, `u${++n}`, { onQueue: (n) => counts.push(n), onDropped: () => {}, signedInAs: async () => `u${n}` })
     state.down = true
     await off.saveEntry({ id: 'e1' } as never)
     await off.saveRead({ id: 'r1' } as never)
@@ -39,7 +41,7 @@ describe('offline outbox', () => {
 
   it('stops at the first network failure and keeps the rest', async () => {
     const { b, state } = fakeBackend()
-    const off = await withOffline(b, 'u1', { onQueue: () => {}, onDropped: () => {} })
+    const off = await withOffline(b, `u${++n}`, { onQueue: () => {}, onDropped: () => {}, signedInAs: async () => `u${n}` })
     state.down = true
     await off.saveEntry({ id: 'a' } as never)
     await off.saveEntry({ id: 'b' } as never)
@@ -50,7 +52,7 @@ describe('offline outbox', () => {
   it('drops a change the server refuses, reports it, and carries on', async () => {
     const { b, state } = fakeBackend()
     const dropped: string[] = []
-    const off = await withOffline(b, 'u1', { onQueue: () => {}, onDropped: (m) => dropped.push(m) })
+    const off = await withOffline(b, `u${++n}`, { onQueue: () => {}, onDropped: (m) => dropped.push(m), signedInAs: async () => `u${n}` })
     state.down = true
     await off.saveEntry({ id: 'bad' } as never)
     await off.saveEntry({ id: 'good' } as never)
@@ -61,9 +63,37 @@ describe('offline outbox', () => {
     expect(dropped).toHaveLength(1)
   })
 
+  it('keeps everything when the sign-in has lapsed, instead of dropping it', async () => {
+    const { b, state } = fakeBackend()
+    const dropped: string[] = []
+    const me = `u${++n}`
+    let who: string | null = me
+    const off = await withOffline(b, me, { onQueue: () => {}, onDropped: (m) => dropped.push(m), signedInAs: async () => who })
+    state.down = true
+    await off.saveEntry({ id: 'a' } as never)
+    state.down = false
+    who = null
+    expect(await off.flush()).toBe(0)
+    expect(off.pending()).toBe(1)
+    // Nor does it show an empty library: it falls back to this device's copy.
+    await expect(off.loadAll()).rejects.toThrow(/offline/)
+    who = me
+    expect(await off.flush()).toBe(1)
+    expect(dropped).toEqual([])
+  })
+
+  it('treats an expired session or a busy server as temporary', async () => {
+    const { b, state } = fakeBackend()
+    const off = await withOffline(b, `u${++n}`, { onQueue: () => {}, onDropped: () => {}, signedInAs: async () => `u${n}` })
+    ;(b as unknown as { saveRead: () => Promise<void> }).saveRead = async () => { throw Object.assign(new Error('JWT expired'), { code: 'PGRST301' }) }
+    await off.saveRead({ id: 'r' } as never)
+    expect(off.pending()).toBe(1)
+    void state
+  })
+
   it('returns empty search results offline instead of failing', async () => {
     const { b, state } = fakeBackend()
-    const off = await withOffline(b, 'u1', { onQueue: () => {}, onDropped: () => {} })
+    const off = await withOffline(b, `u${++n}`, { onQueue: () => {}, onDropped: () => {}, signedInAs: async () => `u${n}` })
     state.down = true
     expect(await off.searchCatalog('x', [])).toEqual({ works: [], editions: [] })
   })

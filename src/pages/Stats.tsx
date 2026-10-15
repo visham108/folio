@@ -214,7 +214,7 @@ export function Stats() {
             <div className="year-shelf">
               {sum.items.map((c, i) => (
                 <motion.div key={c.read.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 30) * 0.02 }}>
-                  <Link to={`/book/${c.work.id}`} title={`${c.work.title} · ${fmtDate(c.read.finishedOn)}`}>
+                  <Link to={`/book/${c.work.id}`} title={`${c.work.title} · ${fmtDate(c.read.finishedOn)}`} aria-label={`${c.work.title}, finished ${fmtDate(c.read.finishedOn)}`}>
                     <Cover work={c.work} edition={c.edition} size="sm" />
                   </Link>
                 </motion.div>

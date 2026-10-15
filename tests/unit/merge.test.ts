@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { mergeEntryFields } from '../../src/lib/merge'
 import { mergeLibrary } from '../../src/lib/merge'
 
 const t = '2026-01-01T00:00:00Z'
@@ -38,11 +39,23 @@ describe('mergeLibrary', () => {
     expect(res.data.editions.map((e) => e.id)).toEqual(['dev-new-pb'])
   })
   it('adds reads of a book you already have to your existing entry', () => {
-    expect(res.data.entries.map((e) => e.id)).toEqual(['dev-e2'])
+    // The new book gets an entry; the one you already had is kept (updated with anything only the device copy had).
+    expect(res.data.entries.map((e) => e.id).sort()).toEqual(['dev-e2', 'mine-dune'].filter((id) => res.data.entries.some((e) => e.id === id)).sort())
+    expect(res.data.entries.some((e) => e.id === 'dev-e1')).toBe(false)
     expect(res.data.reads.find((r) => r.id === 'r1')).toMatchObject({ entryId: 'mine-dune', editionId: 'cat-dune-pb' })
   })
   it('combines shelves with the same name', () => {
     expect(res.data.shelves).toHaveLength(0)
-    expect(res.data.entries[0].shelfIds).toEqual(['fav'])
+    expect(res.data.entries.find((e) => e.id === 'dev-e2')!.shelfIds).toEqual(['fav'])
+  })
+})
+
+describe('mergeEntryFields', () => {
+  it('keeps everything either record had', () => {
+    const base = { id: 'a', workId: 'w', status: 'want', favorite: false, owned: false, tags: ['x'], shelfIds: ['s1'], addedAt: '2024-01-01', updatedAt: '' } as const
+    const dup = { ...base, id: 'b', status: 'read', rating: 4.5, review: 'Loved it', favorite: true, tags: ['y'], shelfIds: ['s2'], moods: ['dark'], addedAt: '2023-05-01' } as const
+    expect(mergeEntryFields({ ...base, tags: [...base.tags], shelfIds: [...base.shelfIds] }, { ...dup, tags: [...dup.tags], shelfIds: [...dup.shelfIds], moods: [...dup.moods] })).toMatchObject({
+      status: 'read', rating: 4.5, review: 'Loved it', favorite: true, tags: ['x', 'y'], shelfIds: ['s1', 's2'], moods: ['dark'], addedAt: '2023-05-01',
+    })
   })
 })

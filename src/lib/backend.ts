@@ -23,8 +23,12 @@ export interface Backend {
   saveShelf(s: Shelf): Promise<void>
   deleteShelf(id: string): Promise<void>
   saveSettings(s: Settings): Promise<void>
-  /** Bulk write used by imports. */
-  saveMany(s: Partial<Snapshot>): Promise<void>
+  /**
+   * Bulk write used by adds and imports. Records that turned out to exist already
+   * (same ISBN in the shared catalogue, or a book already on your shelves) are reused;
+   * the returned map says which of your ids now point where.
+   */
+  saveMany(s: Partial<Snapshot>): Promise<IdRemap | void>
   /** Search the shared catalogue (everything every user has added). */
   searchCatalog(title: string, authors: string[]): Promise<{ works: Work[]; editions: Edition[] }>
   /** Batch lookup of the shared catalogue by ISBN and main title, used before imports and adds. */
@@ -33,6 +37,8 @@ export interface Backend {
   seriesWorks(names: string[]): Promise<{ works: Work[]; editions: Edition[] }>
   /** Load one catalogue book (and its editions) that isn't on your shelves, e.g. from a shared link. */
   fetchWork(id: string): Promise<{ work: Work; editions: Edition[] } | null>
+  /** Which of these books other readers also have (so only the admin may edit them now). */
+  sharedWorks(ids: string[]): Promise<string[]>
   /** Admin only: remove an edition from the shared catalogue. */
   deleteEdition(id: string): Promise<void>
   /** Admin only: fold a duplicate book into another (editions and readers' shelves move with it). */
@@ -43,6 +49,12 @@ export interface Backend {
   uploadCover(blob: Blob): Promise<string>
   signOut?(): Promise<void>
   wipe(): Promise<void>
+}
+
+export interface IdRemap {
+  works: Record<string, string>
+  editions: Record<string, string>
+  entries: Record<string, string>
 }
 
 export interface CatalogueChange {
