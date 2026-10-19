@@ -1,5 +1,6 @@
 import { ChevronDown, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { fold } from '../lib/match'
 import { nameCase, titleCase } from '../lib/titleCase'
 import {
   FORMATS, MOODS, PACES, STATUSES, type Edition, type Entry, type Format, type Pace, type Read, type Status, type Work,
@@ -14,7 +15,7 @@ import { Chips, ConfirmSheet, Stars, Sheet } from './ui'
  * "what to do" (leave, set, clear, add, remove, find & replace); anything left alone isn't touched.
  */
 
-type Mode = 'keep' | 'set' | 'clear' | 'add' | 'remove' | 'replace'
+type Mode = 'keep' | 'set' | 'clear' | 'add' | 'remove' | 'replace' | 'rename'
 type Kind = 'text' | 'longtext' | 'number' | 'list' | 'enum' | 'bool' | 'rating' | 'date' | 'duration' | 'cover' | 'unique'
 type Group = 'book' | 'edition' | 'copy' | 'read'
 
@@ -35,13 +36,13 @@ interface FieldDef {
 }
 
 const TEXT: Mode[] = ['set', 'replace', 'clear']
-const LIST: Mode[] = ['add', 'remove', 'set', 'clear']
+const LIST: Mode[] = ['rename', 'add', 'remove', 'set', 'clear']
 
 const FIELDS: FieldDef[] = [
   // The book (shared catalogue)
   { key: 'title', label: 'Title', group: 'book', kind: 'text', modes: ['set', 'replace'], tidy: titleCase },
   { key: 'subtitle', label: 'Subtitle', group: 'book', kind: 'text', modes: TEXT, tidy: titleCase },
-  { key: 'authors', label: 'Authors', group: 'book', kind: 'list', modes: ['add', 'remove', 'set'], normalize: nameCase, hint: 'A book always keeps at least one author.' },
+  { key: 'authors', label: 'Authors', group: 'book', kind: 'list', modes: ['rename', 'add', 'remove', 'set'], normalize: nameCase, hint: 'A book always keeps at least one author.' },
   { key: 'series', label: 'Series', group: 'book', kind: 'text', modes: TEXT, tidy: titleCase },
   { key: 'seriesIndex', label: 'Number in series', group: 'book', kind: 'number', modes: ['set', 'clear'], placeholder: 'e.g. 2 or 2.5' },
   { key: 'genres', label: 'Genres', group: 'book', kind: 'list', modes: LIST, normalize: titleCase },
@@ -85,7 +86,7 @@ const GROUPS: { id: Group; title: string; sub: string }[] = [
 ]
 
 const MODE_LABEL: Record<Mode, string> = {
-  keep: 'Leave as is', set: 'Set to', clear: 'Clear', add: 'Add', remove: 'Remove', replace: 'Find and replace',
+  keep: 'Leave as is', set: 'Set to', clear: 'Clear', add: 'Add', remove: 'Remove', replace: 'Find and replace', rename: 'Rename',
 }
 
 interface FieldState { mode: Mode; text: string; list: string[]; find: string; replace: string }
@@ -101,6 +102,8 @@ const replaceAll = (cur: string | undefined, find: string, repl: string) => {
   return cur.replace(re, repl)
 }
 const sameItem = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
+// Names that differ only in case, spacing or punctuation ("A.C." / "A. C.") are the same name.
+const sameName = (a: string, b: string) => fold(a) === fold(b)
 
 export function BulkEditSheet({ ids, open, onClose, onDone }: { ids: string[]; open: boolean; onClose: () => void; onDone: () => void }) {
   const store = useStore()
@@ -137,7 +140,7 @@ export function BulkEditSheet({ ids, open, onClose, onDone }: { ids: string[]; o
     if (s.mode === 'keep') return false
     if (s.mode === 'clear') return true
     if (s.mode === 'replace') return !!s.find
-    if (f.kind === 'list') return s.list.length > 0
+    if (f.kind === 'list') return s.list.length > 0 && (s.mode !== 'rename' || !!s.text.trim())
     if (f.kind === 'unique') return single && !!s.text.trim()
     if (f.kind === 'number') return s.text.trim() !== '' && Number.isFinite(Number(s.text.replace(',', '.')))
     if (f.kind === 'duration') return parseDuration(s.text) != null
@@ -154,6 +157,12 @@ export function BulkEditSheet({ ids, open, onClose, onDone }: { ids: string[]; o
     if (s.mode === 'clear') return []
     if (s.mode === 'set') return items
     if (s.mode === 'add') return [...cur, ...items.filter((x) => !cur.some((c) => sameItem(c, x)))]
+    if (s.mode === 'rename') {
+      // Every chosen spelling becomes the one standard name (once, wherever it was in the list).
+      const to = f.normalize ? f.normalize(s.text.trim()) : s.text.trim()
+      const renamed = cur.map((c) => (s.list.some((x) => sameName(c, x)) ? to : c))
+      return renamed.filter((c, i) => renamed.findIndex((d) => sameName(c, d)) === i)
+    }
     return cur.filter((c) => !items.some((x) => sameItem(c, x)))
   }
   const numberValue = (s: FieldState) => (s.mode === 'clear' ? undefined : Number(s.text.replace(',', '.')))
@@ -311,6 +320,21 @@ function FieldRow({ f, s, set, single, options, inUse, ready }: {
       <div className="bulk-replace">
         <input className="input" aria-label={`${f.label}: find`} placeholder="Find (whole words)" value={s.find} onChange={(e) => set({ find: e.target.value })} />
         <input className="input" aria-label={`${f.label}: replace with`} placeholder="Replace with (blank removes it)" value={s.replace} onChange={(e) => set({ replace: e.target.value })} />
+      </div>
+    )
+  } else if (s.mode === 'rename' && f.kind === 'list') {
+    input = (
+      <div className="bulk-rename">
+        <span className="field-hint">Tick the spellings to replace{inUse.length ? '' : ' (or type them)'}:</span>
+        {inUse.length > 0 ? (
+          <div className="bulk-pills small-pills" role="group" aria-label={`${f.label} to rename`}>
+            {inUse.map((v) => (
+              <button key={v} type="button" className={`pill toggle ${s.list.includes(v) ? 'on' : ''}`} aria-pressed={s.list.includes(v)}
+                onClick={() => set({ list: s.list.includes(v) ? s.list.filter((x) => x !== v) : [...s.list, v] })}>{v}</button>
+            ))}
+          </div>
+        ) : <Chips value={s.list} onChange={(list) => set({ list })} placeholder="Name to replace, then Enter" />}
+        <input className="input" aria-label={`${f.label}: new name`} placeholder="…with this name" value={s.text} onChange={(e) => set({ text: e.target.value })} />
       </div>
     )
   } else if (s.mode === 'set' || s.mode === 'add' || s.mode === 'remove') {
