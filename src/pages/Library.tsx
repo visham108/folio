@@ -1,10 +1,11 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { CheckSquare, Grid2x2, List, Pencil, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
+import { CheckSquare, Grid2x2, List, Pencil, Plus, Search, Sparkles, Table2, Trash2, X } from 'lucide-react'
 import { titleCase } from '../lib/titleCase'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { BookTile } from '../components/BookTile'
 import { BulkEditSheet } from '../components/BulkEdit'
+import { LibraryTable } from '../components/LibraryTable'
 import { Cover } from '../components/Cover'
 import { ConfirmSheet, Empty, Segmented, Sheet, Stars } from '../components/ui'
 import { fold } from '../lib/match'
@@ -34,10 +35,11 @@ export function Library() {
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<Sort>('added')
   const [format, setFormat] = useState<'all' | 'print' | 'ebook' | 'audio'>('all')
-  const [view, setViewState] = useState<'grid' | 'list'>(() => {
-    try { return (localStorage.getItem(VIEW_KEY) as 'grid' | 'list') || 'grid' } catch { return 'grid' }
+  type View = 'grid' | 'list' | 'table'
+  const [view, setViewState] = useState<View>(() => {
+    try { return (localStorage.getItem(VIEW_KEY) as View) || 'grid' } catch { return 'grid' }
   })
-  const setView = (v: 'grid' | 'list') => { setViewState(v); try { localStorage.setItem(VIEW_KEY, v) } catch { /* private mode */ } }
+  const setView = (v: View) => { setViewState(v); try { localStorage.setItem(VIEW_KEY, v) } catch { /* private mode */ } }
   // The shelf being created ('new') or renamed.
   const [shelfEdit, setShelfEdit] = useState<Shelf | 'new' | null>(null)
   const [shelfName, setShelfName] = useState('')
@@ -217,15 +219,19 @@ export function Library() {
         <select className="select" value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort">
           {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
         </select>
-        <button className={`btn btn-ghost sm ${selecting ? 'on' : ''}`} aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
+        {view !== 'table' && <button className={`btn btn-ghost sm ${selecting ? 'on' : ''}`} aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
           <CheckSquare size={15} /> {selecting ? 'Done' : 'Select'}
-        </button>
+        </button>}
         <Segmented
           size="sm"
           label="View"
           value={view}
           onChange={setView}
-          options={[{ id: 'grid', label: <Grid2x2 size={15} aria-label="Grid" /> }, { id: 'list', label: <List size={15} aria-label="List" /> }]}
+          options={[
+            { id: 'grid', label: <Grid2x2 size={15} aria-label="Grid" /> },
+            { id: 'list', label: <List size={15} aria-label="List" /> },
+            { id: 'table', label: <Table2 size={15} aria-label="Table of every detail" /> },
+          ]}
         />
       </div>
 
@@ -235,6 +241,8 @@ export function Library() {
             : q || format !== 'all' ? <p>Try a different search or format.</p>
               : <p>{emptyCopy(pile, !!shelf, !!smart)}</p>}
         </Empty>
+      ) : view === 'table' ? (
+        <LibraryTable entries={list} selected={selected} onToggle={toggle} onSetSelected={setSelected} />
       ) : view === 'grid' ? (
         <div className="grid">
           <AnimatePresence initial={false}>
@@ -274,7 +282,7 @@ export function Library() {
         </div>
       )}
 
-      {selecting && (
+      {(selecting || (view === 'table' && selected.size > 0)) && (
         <div className="select-bar" role="region" aria-label="Selected books">
           <span><b>{visibleSelected.length}</b> selected</span>
           <button className="link" onClick={() => setSelected(allSelected ? new Set() : new Set(list.map((e) => e.id)))}>

@@ -276,3 +276,33 @@ test('bulk edit and per-year goals', async ({ page }) => {
 
   expect(errors).toEqual([])
 })
+
+test('table of every detail: edit a cell, select rows', async ({ page }) => {
+  const errors = watchErrors(page)
+  await startOnDevice(page)
+  await page.goto('/#/settings')
+  await page.getByRole('button', { name: /sample library/ }).click()
+  await openLibrary(page)
+  await page.getByRole('radio', { name: 'Table of every detail' }).click()
+  await expect(page.locator('.ltable tbody tr').first()).toBeVisible()
+
+  // Search narrows the table to one book; change its page count in place.
+  await page.getByPlaceholder(/Search/).fill('Piranesi')
+  await expect(page.locator('.ltable tbody tr')).toHaveCount(1)
+  await page.getByRole('button', { name: /^Pages: .* Change$/ }).click()
+  await page.getByLabel('Pages', { exact: true }).fill('245')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('button', { name: 'Pages: 245. Change' })).toBeVisible()
+  await page.reload()
+  await page.getByPlaceholder(/Search/).fill('Piranesi')
+  await expect(page.getByRole('button', { name: 'Pages: 245. Change' })).toBeVisible()
+
+  // Tick rows and open the bulk editor on them.
+  await page.getByPlaceholder(/Search/).fill('')
+  await page.locator('.ltable tbody input[type=checkbox]').nth(0).check()
+  await page.locator('.ltable tbody input[type=checkbox]').nth(1).check()
+  await page.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Edit 2 books' })).toBeVisible()
+
+  expect(errors).toEqual([])
+})
