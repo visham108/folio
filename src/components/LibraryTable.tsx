@@ -14,11 +14,11 @@ import { useToast } from '../state/toast'
  * tick rows to bulk edit them, or click a cell to change just that value.
  */
 
-interface Row { entry: Entry; work: Work; edition?: Edition; reads: Read[]; latest?: Read; finished: number }
+export interface Row { entry: Entry; work: Work; edition?: Edition; reads: Read[]; latest?: Read; finished: number }
 type Kind = 'text' | 'longtext' | 'number' | 'list' | 'enum' | 'bool' | 'rating' | 'date' | 'duration' | 'cover' | 'unique' | 'none'
-type Group = 'Book' | 'Edition' | 'Your copy' | 'Reading'
+export type Group = 'Book' | 'Edition' | 'Your copy' | 'Reading'
 
-interface Col {
+export interface Col {
   key: string
   label: string
   group: Group
@@ -39,7 +39,7 @@ const yesNo = (b: boolean) => (b ? 'Yes' : 'No')
 const statusLabel = (s: Status) => STATUSES.find((x) => x.id === s)?.label ?? s
 const formatLabel = (f?: Format) => FORMATS.find((x) => x.id === f)?.label ?? ''
 
-function makeColumns(shelfName: (id: string) => string): Col[] {
+export function makeColumns(shelfName: (id: string) => string): Col[] {
   return [
     { key: 'title', label: 'Title', group: 'Book', kind: 'text', width: 260, text: (r) => r.work.title, catalogue: 'work', tidy: titleCase },
     { key: 'subtitle', label: 'Subtitle', group: 'Book', kind: 'text', width: 220, text: (r) => r.work.subtitle ?? '', catalogue: 'work', tidy: titleCase },
@@ -136,51 +136,29 @@ function cellPatch(c: Col, raw: string): BookPatch | string {
   return 'This column can’t be edited here.'
 }
 
-export function LibraryTable({ entries, selected, onToggle, onSetSelected }: {
-  entries: Entry[]
-  selected: Set<string>
-  onToggle: (id: string) => void
-  onSetSelected: (ids: Set<string>) => void
-}) {
+type Store = ReturnType<typeof useStore>
+
+/** One book as a table row: its entry, work, your edition and reads. */
+export function rowOf(store: Store, entry: Entry): Row {
+  const work = store.works.get(entry.workId)!
+  const reads = store.readsByEntry.get(entry.id) ?? []
+  const latest = reads.find((r) => r.state === 'reading' || r.state === 'paused')
+    ?? [...reads].sort((a, b) => (a.finishedOn ?? a.startedOn ?? '').localeCompare(b.finishedOn ?? b.startedOn ?? '')).pop()
+  return { entry, work, edition: store.editionOf(entry), reads, latest, finished: reads.filter((r) => r.state === 'finished').length }
+}
+
+export function useColumns(): Col[] {
+  const store = useStore()
+  const shelfName = (id: string) => store.data.shelves.find((s) => s.id === id)?.name ?? ''
+  return useMemo(() => makeColumns(shelfName), [store.data.shelves]) // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+/** Click-to-change for a single value, shared by the table and the book page's details. */
+export function useCellEditor() {
   const store = useStore()
   const toast = useToast()
-  const shelfName = (id: string) => store.data.shelves.find((s) => s.id === id)?.name ?? ''
-  const columns = useMemo(() => makeColumns(shelfName), [store.data.shelves]) // eslint-disable-line react-hooks/exhaustive-deps
-  const [hidden, setHidden] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? '[]')) } catch { return new Set() }
-  })
-  const saveHidden = (h: Set<string>) => { setHidden(h); try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...h])) } catch { /* private mode */ } }
-  const [sort, setSort] = useState<{ key: string; dir: 1 | -1 } | null>(null)
   const [editing, setEditing] = useState<{ id: string; key: string } | null>(null)
   const [draft, setDraft] = useState('')
-  const [showCols, setShowCols] = useState(false)
-  const [limit, setLimit] = useState(PAGE)
-
-  const rows = useMemo<Row[]>(() => entries.map((entry) => {
-    const work = store.works.get(entry.workId)!
-    const reads = store.readsByEntry.get(entry.id) ?? []
-    const latest = reads.find((r) => r.state === 'reading' || r.state === 'paused')
-      ?? [...reads].sort((a, b) => (a.finishedOn ?? a.startedOn ?? '').localeCompare(b.finishedOn ?? b.startedOn ?? '')).pop()
-    return { entry, work, edition: store.editionOf(entry), reads, latest, finished: reads.filter((r) => r.state === 'finished').length }
-  }), [entries, store.works, store.readsByEntry, store.editions]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const visible = columns.filter((c) => !hidden.has(c.key) || c.key === 'title')
-  const sorted = useMemo(() => {
-    if (!sort) return rows
-    const c = columns.find((x) => x.key === sort.key)
-    if (!c) return rows
-    const val = c.sort ?? c.text
-    return [...rows].sort((a, b) => {
-      const x = val(a), y = val(b)
-      // Empty cells go last whichever way you sort.
-      if (x === '' && y !== '') return 1
-      if (y === '' && x !== '') return -1
-      return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true })) * sort.dir
-    })
-  }, [rows, sort, columns])
-  const shown = sorted.slice(0, limit)
-  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.entry.id))
-
   const locked = (c: Col, r: Row) =>
     (c.catalogue === 'work' && !store.canEdit(r.work)) || (c.catalogue === 'edition' && !!r.edition && !store.canEdit(r.edition))
   const startEdit = (c: Col, r: Row) => {
@@ -231,6 +209,48 @@ export function LibraryTable({ entries, selected, onToggle, onSetSelected }: {
       placeholder={c.kind === 'list' ? 'Separate with commas' : c.kind === 'duration' ? '11h 23m' : undefined}
       onChange={(e) => setDraft(e.target.value)} onBlur={() => commit(c, r)} />
   }
+
+  const editable = (c: Col, r: Row) => c.kind !== 'none' && !locked(c, r) && (c.catalogue !== 'edition' || !!r.edition)
+  const isEditing = (c: Col, r: Row) => editing?.id === r.entry.id && editing.key === c.key
+  return { locked, editable, startEdit, editor, isEditing }
+}
+
+export function LibraryTable({ entries, selected, onToggle, onSetSelected }: {
+  entries: Entry[]
+  selected: Set<string>
+  onToggle: (id: string) => void
+  onSetSelected: (ids: Set<string>) => void
+}) {
+  const store = useStore()
+  const columns = useColumns()
+  const { locked, editable: canChange, startEdit, editor, isEditing: cellEditing } = useCellEditor()
+  const [hidden, setHidden] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? '[]')) } catch { return new Set() }
+  })
+  const saveHidden = (h: Set<string>) => { setHidden(h); try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...h])) } catch { /* private mode */ } }
+  const [sort, setSort] = useState<{ key: string; dir: 1 | -1 } | null>(null)
+  const [showCols, setShowCols] = useState(false)
+  const [limit, setLimit] = useState(PAGE)
+
+  const rows = useMemo<Row[]>(() => entries.map((entry) => rowOf(store, entry)),
+    [entries, store.works, store.readsByEntry, store.editions]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const visible = columns.filter((c) => !hidden.has(c.key) || c.key === 'title')
+  const sorted = useMemo(() => {
+    if (!sort) return rows
+    const c = columns.find((x) => x.key === sort.key)
+    if (!c) return rows
+    const val = c.sort ?? c.text
+    return [...rows].sort((a, b) => {
+      const x = val(a), y = val(b)
+      // Empty cells go last whichever way you sort.
+      if (x === '' && y !== '') return 1
+      if (y === '' && x !== '') return -1
+      return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true })) * sort.dir
+    })
+  }, [rows, sort, columns])
+  const shown = sorted.slice(0, limit)
+  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.entry.id))
 
   // Band headers: one per group, spanning its visible columns.
   const groups = visible.reduce<{ group: Group; span: number }[]>((acc, c) => {
@@ -299,9 +319,9 @@ export function LibraryTable({ entries, selected, onToggle, onSetSelected }: {
                     <input type="checkbox" checked={on} aria-label={`Select ${r.work.title}`} onChange={() => onToggle(r.entry.id)} />
                   </td>
                   {visible.map((c) => {
-                    const isEditing = editing?.id === r.entry.id && editing.key === c.key
+                    const isEditing = cellEditing(c, r)
                     const lock = locked(c, r)
-                    const editable = c.kind !== 'none' && !lock && (c.catalogue !== 'edition' || !!r.edition)
+                    const editable = canChange(c, r)
                     if (c.key === 'title' && !isEditing) {
                       return (
                         <td key={c.key} className="sticky-col title-col">

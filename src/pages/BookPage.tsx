@@ -10,6 +10,7 @@ import { EditionForm } from '../components/EditionForm'
 import { ProgressSheet } from '../components/ProgressSheet'
 import { Bar, Chips, ConfirmSheet, Empty, Field, Segmented, Sheet, Stars } from '../components/ui'
 import { AdminPanel } from '../components/AdminPanel'
+import { BookDetails } from '../components/BookDetails'
 import { averageColor } from '../lib/image'
 import { progressInfo } from '../lib/progress'
 import { seriesSlug } from '../lib/series'
@@ -45,7 +46,12 @@ export function BookPage() {
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [review, setReview] = useState(entry?.review ?? '')
   const reviewTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  useEffect(() => setReview(entry?.review ?? ''), [entry?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  const savedReview = useRef(entry?.review)
+  useEffect(() => { savedReview.current = entry?.review; setReview(entry?.review ?? '') }, [entry?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Notes changed somewhere else (the details list): show them, without undoing what you're typing here.
+  useEffect(() => {
+    if (entry?.review !== savedReview.current) { savedReview.current = entry?.review; setReview(entry?.review ?? '') }
+  }, [entry?.review]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // A book from a shared link may not be on your shelves yet: fetch it from the catalogue.
   const [lookup, setLookup] = useState<'idle' | 'loading' | 'missing'>('idle')
@@ -213,6 +219,14 @@ export function BookPage() {
           </div>
         </div>
 
+        <section className="section">
+          <div className="section-head">
+            <h2>Details</h2>
+            {entry && <span className="muted small">Click any value to change it.</span>}
+          </div>
+          <BookDetails work={work} entry={entry} edition={edition} />
+        </section>
+
         {/* Editions */}
         <section className="section">
           <div className="section-head">
@@ -342,7 +356,7 @@ export function BookPage() {
                   const v = e.target.value
                   setReview(v)
                   clearTimeout(reviewTimer.current)
-                  reviewTimer.current = setTimeout(() => store.updateEntry(entry.id, { review: v || undefined }), 600)
+                  reviewTimer.current = setTimeout(() => { savedReview.current = v || undefined; store.updateEntry(entry.id, { review: v || undefined }) }, 600)
                 }}
               />
               <p className="muted tiny">Saves as you type.</p>

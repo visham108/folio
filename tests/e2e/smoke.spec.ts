@@ -136,11 +136,11 @@ test('smart shelves, series, moods and export', async ({ page }) => {
   await page.locator('.series-link').first().click()
 
   // Moods and pace stick
-  await page.getByRole('button', { name: 'Hopeful' }).click()
-  await expect(page.getByRole('button', { name: 'Hopeful' })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Hopeful', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Hopeful', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('radio', { name: 'Fast' }).click()
   await page.reload()
-  await expect(page.getByRole('button', { name: 'Hopeful' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: 'Hopeful', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('radio', { name: 'Fast' })).toBeChecked()
 
   // Export
@@ -360,6 +360,35 @@ test('progress by page or percent; rename an author everywhere', async ({ page }
   await bulk.getByRole('button', { name: /^Apply 1 change/ }).click()
   await page.getByPlaceholder(/Search/).fill('Frank P. Herbert')
   await expect(page.locator('.ltable tbody tr')).toHaveCount(2)
+
+  expect(errors).toEqual([])
+})
+
+test('book page shows every detail and changes them in place', async ({ page }) => {
+  const errors = watchErrors(page)
+  await startOnDevice(page)
+  await page.goto('/#/settings')
+  await page.getByRole('button', { name: /sample library/ }).click()
+  await openLibrary(page)
+  await page.locator('.tile-link', { hasText: 'Piranesi' }).click()
+
+  const details = page.locator('.details')
+  for (const label of ['Subtitle', 'Original language', 'ISBN', 'ASIN', 'Translators', 'Edition note', 'Owned', 'Added', 'Times read'])
+    await expect(details.getByText(label, { exact: true })).toBeVisible()
+
+  // Page count: change it here and the header follows.
+  await details.getByRole('button', { name: /^Pages: .* Change$/ }).click()
+  await details.getByLabel('Pages', { exact: true }).fill('245')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.book-facts')).toContainText('245 pages')
+
+  // Notes changed in the details show in the notes box too.
+  await details.getByRole('button', { name: /^Your notes: .* Change$/ }).click()
+  await details.getByLabel('Your notes', { exact: true }).fill('Lend to Sam')
+  await details.getByLabel('Your notes', { exact: true }).blur()
+  await expect(page.locator('textarea.review')).toHaveValue('Lend to Sam')
+  await page.reload()
+  await expect(page.locator('.details').getByRole('button', { name: 'Pages: 245. Change' })).toBeVisible()
 
   expect(errors).toEqual([])
 })
