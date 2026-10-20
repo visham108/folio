@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { BookTile } from '../components/BookTile'
 import { Cover } from '../components/Cover'
 import { Notices } from '../components/Notices'
+import { RefreshControl } from '../components/Refresh'
 import { GoalSheet } from '../components/GoalSheet'
 import { ProgressSheet } from '../components/ProgressSheet'
 import { Bar, Empty, Ring, Stars } from '../components/ui'
@@ -67,6 +68,7 @@ export function Home() {
     <div className="page">
       <header className="page-head">
         <p className="eyebrow">{greeting()}{name ? `, ${name}` : ''} · {new Date().toLocaleDateString('en', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+        <RefreshControl className="only-mobile head-refresh" />
         <h1 className="display">
           {yp.done === 0 ? <>A fresh year of <em>reading.</em></> : <>{plural(yp.done, 'book')} into <em>{year}.</em></>}
         </h1>

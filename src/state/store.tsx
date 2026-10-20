@@ -109,6 +109,10 @@ interface Store {
   deviceBooks: number
   /** Changes made offline, waiting to sync. */
   pending: number
+  /** When the library was last loaded fresh (from the server, or this device's store). */
+  refreshedAt: number | null
+  /** Finish saving, then reload the library. 'offline': showing this device's saved copy. */
+  refresh(): Promise<'ok' | 'offline' | 'error'>
   moveDeviceBooks(): Promise<number>
   dismissDeviceBooks(discard: boolean): Promise<void>
   /** Bring a catalogue book that isn't on your shelves into view (shared links). */
@@ -146,11 +150,17 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
   const moved = useRef(new Map<string, string>())
   const [deviceBooks, setDeviceBooks] = useState(0)
   const [pending, setPending] = useState(0)
+  const [refreshedAt, setRefreshedAt] = useState<number | null>(null)
   const be = useRef<Backend | null>(null)
   be.current = backend
   // Keep the latest callback without making boot() depend on it.
   const errRef = useRef(onError)
   errRef.current = onError
+  // A library just loaded: show it, and note the time unless it was this device's offline copy.
+  const loaded = useCallback((b: Backend, snap: Snapshot) => {
+    setData(snap)
+    if (!(b as Partial<OfflineBackend>).fromCache) setRefreshedAt(Date.now())
+  }, [setData])
 
   const boot = useCallback(async () => {
     let b: Backend | null = null
@@ -163,7 +173,7 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
           onQueue: setPending,
           onDropped: (msg) => errRef.current('A change made offline couldn’t be saved: ' + msg),
           signedInAs: sessionUserId,
-          onSynced: () => { if (be.current === ob) ob.loadAll().then(setData).catch(() => {}) },
+          onSynced: () => { if (be.current === ob) ob.loadAll().then((snap) => loaded(ob, snap)).catch(() => {}) },
         })
         b = ob
       }
@@ -176,7 +186,7 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
           await b.saveMany(sampleLibrary())
           snap = await b.loadAll()
         }
-        setData(snap)
+        loaded(b, snap)
         // Books added before signing in are still in this browser: offer to move them.
         if (b.kind === 'cloud' && !DEMO) {
           const local = await createLocalBackend().loadAll().catch(() => null)
@@ -191,7 +201,7 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
     } else setData(emptySnapshot())
     setBackend(b)
     setReady(true)
-  }, [setData])
+  }, [setData, loaded])
 
   // Back online (or back to this tab): send anything made offline, then refresh from the server.
   useEffect(() => {
@@ -199,7 +209,7 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
       const b = be.current as OfflineBackend | null
       if (!b || b.kind !== 'cloud' || !b.flush || !b.pending()) return
       try {
-        if (await b.flush()) setData(await b.loadAll())
+        if (await b.flush()) loaded(b, await b.loadAll())
       } catch { /* still flaky: the outbox keeps everything */ }
     }
     const onVisible = () => { if (document.visibilityState === 'visible') sync() }
@@ -209,7 +219,7 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
       window.removeEventListener('online', sync)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [setData])
+  }, [loaded])
 
   // On-device library: another tab changed it, so show the latest.
   useEffect(() => {
@@ -217,10 +227,10 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
     try { ch = new BroadcastChannel(LOCAL_CHANNEL) } catch { return }
     ch.onmessage = () => {
       const b = be.current
-      if (b?.kind === 'local') b.loadAll().then(setData).catch(() => {})
+      if (b?.kind === 'local') b.loadAll().then((snap) => loaded(b, snap)).catch(() => {})
     }
     return () => ch?.close()
-  }, [setData])
+  }, [loaded])
 
   // Keep this device's copy of the signed-in library current, so it opens offline.
   useEffect(() => {
@@ -730,6 +740,28 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
     },
     deviceBooks,
     pending,
+    refreshedAt,
+    async refresh() {
+      const b = be.current
+      if (!b) return 'error'
+      if (b.kind === 'cloud' && typeof navigator !== 'undefined' && navigator.onLine === false) return 'offline'
+      try {
+        // Let saves already under way land first, so the reload includes them; if you change
+        // something while it loads, load again rather than show a copy without that change.
+        for (let tries = 0; tries < 3; tries++) {
+          const before = chain.current
+          await before.catch(() => {})
+          const snap = await b.loadAll()
+          if (chain.current !== before && tries < 2) continue
+          loaded(b, snap)
+          return (b as Partial<OfflineBackend>).fromCache ? 'offline' : 'ok'
+        }
+        return 'error'
+      } catch (e) {
+        errRef.current('Couldn’t refresh your library: ' + ((e as Error).message ?? 'unknown error'))
+        return 'error'
+      }
+    },
     async moveDeviceBooks() {
       const b = be.current as OfflineBackend | null
       if (!b || b.kind !== 'cloud') return 0

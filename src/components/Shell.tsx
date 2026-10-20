@@ -3,6 +3,7 @@ import { BarChart3, BookOpen, Home, Library, Plus, Settings } from 'lucide-react
 import { Suspense } from 'react'
 import { Link, NavLink, useLocation, useNavigate, useOutlet } from 'react-router-dom'
 import { useStore } from '../state/store'
+import { RefreshControl } from './Refresh'
 import { Ring } from './ui'
 import { useYearProgress } from '../pages/hooks'
 
@@ -45,6 +46,7 @@ export function Shell() {
             <div className="muted small">{yp.goal ? `${yp.done} of ${yp.goal} books` : `${yp.done} ${yp.done === 1 ? 'book' : 'books'} read`}</div>
           </div>
         </Link>
+        <RefreshControl className="side-refresh" />
         <div className="side-foot muted small">{backend?.kind === 'cloud' ? backend.userLabel : 'Saved on this device'}</div>
       </aside>
 

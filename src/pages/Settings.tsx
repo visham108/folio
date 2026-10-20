@@ -9,6 +9,7 @@ import { downloadText, fullCsv, goodreadsCsv } from '../lib/exporter'
 import { fmtDate, localIso, plural, today } from '../lib/util'
 import { goalFor, withGoal, type Settings, type Snapshot } from '../lib/types'
 import { useStore } from '../state/store'
+import { RefreshControl } from '../components/Refresh'
 import { FillLengthsButton, useMissingLengths } from '../components/FillLengths'
 import { useToast } from '../state/toast'
 
@@ -143,6 +144,7 @@ export function SettingsPage() {
           <button className="btn btn-ghost" onClick={() => store.signOut()}><LogOut size={16} /> {backend?.kind === 'cloud' ? 'Sign out' : 'Switch to an account'}</button>
           <button className="btn btn-ghost danger" onClick={() => setConfirmWipe(true)}><Trash2 size={16} /> Delete my library</button>
         </div>
+        <RefreshControl className="settings-refresh" />
         <p className="muted small"><a className="link" href="./privacy.html">Privacy policy</a></p>
         <ConfirmSheet
           open={confirmWipe}

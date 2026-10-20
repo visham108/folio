@@ -83,6 +83,8 @@ export interface OfflineBackend extends Backend {
   /** Sends queued changes. Returns how many went through. */
   flush(): Promise<number>
   pending(): number
+  /** The last loadAll() came from this device's saved copy, not the server. */
+  fromCache: boolean
 }
 
 /** Every tab shares one outbox; the lock stops two of them editing or sending it at once. */
@@ -136,7 +138,7 @@ export async function withOffline(
 
   const call = (method: Queueable, args: unknown[]) => (inner[method] as (...a: unknown[]) => Promise<unknown>)(...args)
 
-  const wrapped = { ...inner } as OfflineBackend
+  const wrapped = { ...inner, fromCache: false } as OfflineBackend
   for (const m of QUEUEABLE) {
     ;(wrapped as unknown as Record<string, unknown>)[m] = async (...args: unknown[]) => {
       // Keep order: once something is queued, later changes queue behind it.
@@ -163,11 +165,12 @@ export async function withOffline(
       if (count) await wrapped.flush()
       const snap = await inner.loadAll()
       cacheSnapshot(userId, snap)
+      wrapped.fromCache = false
       return snap
     } catch (e) {
       if (!isTemporary(e)) throw e
       const cached = await readSnapshot(userId)
-      if (cached) return cached
+      if (cached) { wrapped.fromCache = true; return cached }
       throw new Error('You’re offline and this device has no saved copy of your library yet.')
     }
   }

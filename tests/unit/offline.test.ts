@@ -39,6 +39,20 @@ describe('offline outbox', () => {
     expect(counts.at(-1)).toBe(0)
   })
 
+  it('says when the library shown is the saved copy rather than the server’s', async () => {
+    const { b, state } = fakeBackend()
+    const off = await withOffline(b, `u${++n}`, { onQueue: () => {}, onDropped: () => {}, signedInAs: async () => `u${n}` })
+    await off.loadAll()
+    expect(off.fromCache).toBe(false)
+    await new Promise((r) => setTimeout(r, 50)) // the copy is saved in the background
+    state.down = true
+    await off.loadAll()
+    expect(off.fromCache).toBe(true)
+    state.down = false
+    await off.loadAll()
+    expect(off.fromCache).toBe(false)
+  })
+
   it('stops at the first network failure and keeps the rest', async () => {
     const { b, state } = fakeBackend()
     const off = await withOffline(b, `u${++n}`, { onQueue: () => {}, onDropped: () => {}, signedInAs: async () => `u${n}` })
