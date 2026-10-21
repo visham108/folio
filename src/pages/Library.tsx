@@ -1,11 +1,12 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { CheckSquare, Grid2x2, List, Pencil, Plus, Search, Sparkles, Table2, Trash2, X } from 'lucide-react'
+import { CheckSquare, Grid2x2, LibraryBig, List, Pencil, Plus, Search, Sparkles, Table2, Trash2, X } from 'lucide-react'
 import { titleCase } from '../lib/titleCase'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { BookTile } from '../components/BookTile'
 import { BulkEditSheet } from '../components/BulkEdit'
 import { LibraryTable } from '../components/LibraryTable'
+import { SpineShelf, spineHue } from '../components/SpineShelf'
 import { Cover } from '../components/Cover'
 import { ConfirmSheet, Empty, Segmented, Sheet, Stars } from '../components/ui'
 import { fold } from '../lib/match'
@@ -15,7 +16,7 @@ import { useStore } from '../state/store'
 import { findSmart, nextInSeriesIds, SMART_SHELVES, smartId } from '../lib/smartShelves'
 import { useSeries } from './hooks'
 
-type Sort = 'added' | 'title' | 'author' | 'rating' | 'finished' | 'length'
+type Sort = 'added' | 'title' | 'author' | 'rating' | 'finished' | 'length' | 'colour'
 const SORTS: { id: Sort; label: string }[] = [
   { id: 'added', label: 'Recently added' },
   { id: 'finished', label: 'Date read' },
@@ -23,6 +24,8 @@ const SORTS: { id: Sort; label: string }[] = [
   { id: 'author', label: 'Author' },
   { id: 'rating', label: 'Rating' },
   { id: 'length', label: 'Length' },
+  // Spines only: the generated cover colours, which the grid and lists don't show.
+  { id: 'colour', label: 'Colour' },
 ]
 
 const VIEW_KEY = 'folio.libraryView'
@@ -35,11 +38,15 @@ export function Library() {
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<Sort>('added')
   const [format, setFormat] = useState<'all' | 'print' | 'ebook' | 'audio'>('all')
-  type View = 'grid' | 'list' | 'table'
+  type View = 'grid' | 'list' | 'table' | 'shelf'
   const [view, setViewState] = useState<View>(() => {
     try { return (localStorage.getItem(VIEW_KEY) as View) || 'grid' } catch { return 'grid' }
   })
-  const setView = (v: View) => { setViewState(v); try { localStorage.setItem(VIEW_KEY, v) } catch { /* private mode */ } }
+  const setView = (v: View) => {
+    setViewState(v)
+    if (v !== 'shelf' && sort === 'colour') setSort('added')
+    try { localStorage.setItem(VIEW_KEY, v) } catch { /* private mode */ }
+  }
   // The shelf being created ('new') or renamed.
   const [shelfEdit, setShelfEdit] = useState<Shelf | 'new' | null>(null)
   const [shelfName, setShelfName] = useState('')
@@ -121,6 +128,7 @@ export function Library() {
       rating: (a, b) => (b.rating ?? 0) - (a.rating ?? 0),
       finished: (a, b) => lastFinished(b).localeCompare(lastFinished(a)),
       length: (a, b) => len(b) - len(a),
+      colour: (a, b) => spineHue(w(a).title, w(a).authors[0]) - spineHue(w(b).title, w(b).authors[0]) || len(b) - len(a),
     }
     return xs.filter((e) => works.has(e.workId)).sort(cmp[sort])
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -217,7 +225,7 @@ export function Library() {
           <option value="audio">Audio</option>
         </select>
         <select className="select" value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort">
-          {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          {SORTS.filter((s) => s.id !== 'colour' || view === 'shelf').map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
         </select>
         {view !== 'table' && <button className={`btn btn-ghost sm ${selecting ? 'on' : ''}`} aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
           <CheckSquare size={15} /> {selecting ? 'Done' : 'Select'}
@@ -231,6 +239,7 @@ export function Library() {
             { id: 'grid', label: <Grid2x2 size={15} aria-label="Grid" /> },
             { id: 'list', label: <List size={15} aria-label="List" /> },
             { id: 'table', label: <Table2 size={15} aria-label="Table of every detail" /> },
+            { id: 'shelf', label: <LibraryBig size={15} aria-label="Spines on a shelf" /> },
           ]}
         />
       </div>
@@ -243,6 +252,8 @@ export function Library() {
         </Empty>
       ) : view === 'table' ? (
         <LibraryTable entries={list} selected={selected} onToggle={toggle} onSetSelected={setSelected} />
+      ) : view === 'shelf' ? (
+        <SpineShelf entries={list} grouped={pile === 'all'} selecting={selecting} selected={selected} onToggle={toggle} />
       ) : view === 'grid' ? (
         <div className="grid">
           <AnimatePresence initial={false}>

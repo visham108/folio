@@ -408,3 +408,39 @@ test('refresh reloads the library and shows when', async ({ page }) => {
   await expect(page.locator('.settings-refresh')).toContainText(/Last refreshed Today, /)
   expect(errors).toEqual([])
 })
+
+test('library as spines on a shelf; a shareable year card', async ({ page }) => {
+  const errors = watchErrors(page)
+  await startOnDevice(page)
+  await page.goto('/#/settings')
+  await page.getByRole('button', { name: /sample library/ }).click()
+
+  // Spines: one shelf per pile on "All", sortable by colour, and each spine opens its book.
+  await openLibrary(page)
+  await page.getByRole('radio', { name: 'Spines on a shelf' }).click()
+  await expect(page.locator('.spine').first()).toBeVisible()
+  expect(await page.locator('.spine').count()).toBe(await page.locator('.spine-cell').count())
+  await expect(page.getByRole('heading', { name: /Want to read/ })).toBeVisible()
+  await page.getByRole('combobox', { name: 'Sort' }).selectOption('colour')
+  await page.locator('.spine').first().click()
+  await expect(page.locator('.book-title')).toBeVisible()
+
+  // Colour sorting only makes sense for spines, so other views put it back.
+  await openLibrary(page)
+  await page.getByRole('radio', { name: 'Grid' }).click()
+  await expect(page.getByRole('combobox', { name: 'Sort' })).toHaveValue('added')
+
+  // Year card: a picture you can download.
+  await page.goto('/#/stats')
+  await page.getByRole('button', { name: 'Share your year' }).click()
+  await expect(page.locator('.year-card-preview img')).toBeVisible()
+  const size = await page.locator('.year-card-preview img').evaluate((img: HTMLImageElement) => [img.naturalWidth, img.naturalHeight])
+  expect(size).toEqual([1080, 1350])
+  await page.getByRole('radio', { name: 'Light' }).click()
+  await expect(page.locator('.year-card-preview img')).toBeVisible()
+  const download = page.waitForEvent('download')
+  await page.getByRole('link', { name: 'Download image' }).click()
+  expect((await download).suggestedFilename()).toMatch(/^folio-\d{4}\.png$/)
+
+  expect(errors).toEqual([])
+})

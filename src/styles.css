@@ -27,6 +27,8 @@
   --c-ebook: #1a9a78;
   --grid: #ebe4d8;
   --axis: #d3c9b9;
+  --shelf: #e2d6c3;
+  --shelf-edge: #cdbfa9;
 
   --shadow-sm: 0 1px 2px rgba(48, 36, 20, 0.05);
   --shadow: 0 1px 2px rgba(48, 36, 20, 0.04), 0 8px 24px -12px rgba(48, 36, 20, 0.18);
@@ -71,6 +73,8 @@
     --c-ebook: #1d9a76;
     --grid: #2a2723;
     --axis: #3a3631;
+    --shelf: #2e2a24;
+    --shelf-edge: #3d3730;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -12px rgba(0, 0, 0, 0.6);
     --shadow-lg: 0 30px 60px -20px rgba(0, 0, 0, 0.75);
@@ -100,6 +104,8 @@
   --c-ebook: #1d9a76;
   --grid: #2a2723;
   --axis: #3a3631;
+  --shelf: #2e2a24;
+  --shelf-edge: #3d3730;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -12px rgba(0, 0, 0, 0.6);
   --shadow-lg: 0 30px 60px -20px rgba(0, 0, 0, 0.75);
@@ -298,6 +304,40 @@ p { margin: 0; }
 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 34px 26px; }
 @media (max-width: 520px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px 14px; } }
+
+/* Spines: each cell is one shelf row tall, so wrapped rows line up with the boards painted behind them. */
+.spine-shelves { display: flex; flex-direction: column; gap: 40px; }
+.spine-shelf {
+  --row: 214px;
+  --board: 12px;
+  display: flex; flex-wrap: wrap; column-gap: 3px; padding: 0 14px;
+  background: repeating-linear-gradient(to bottom,
+    transparent 0 calc(var(--row) - var(--board)),
+    var(--shelf) calc(var(--row) - var(--board)) calc(var(--row) - 3px),
+    var(--shelf-edge) calc(var(--row) - 3px) var(--row));
+  border-radius: 4px;
+}
+.spine-cell { height: var(--row); padding-bottom: var(--board); display: flex; align-items: flex-end; }
+.spine {
+  position: relative; display: flex; flex-direction: column; align-items: center;
+  padding: 12px 0 18px; border-radius: 3px 3px 1px 1px;
+  box-shadow: inset 2px 0 0 rgba(255, 255, 255, 0.08), inset -3px 0 0 rgba(0, 0, 0, 0.18);
+  transition: transform 0.2s var(--ease);
+}
+.spine:hover, .spine:focus-visible { transform: translateY(-8px); }
+.spine.raised { transform: translateY(-14px); }
+.spine.raised:hover, .spine.raised:focus-visible { transform: translateY(-20px); }
+.spine.selected { outline: 2px solid var(--accent); outline-offset: 2px; }
+.spine-title {
+  writing-mode: vertical-rl; max-height: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 400 0.8rem/1 var(--serif); letter-spacing: 0.01em;
+}
+.spine-band { position: absolute; left: 4px; right: 4px; bottom: 6px; height: 4px; border-radius: 2px; }
+.spine-legend { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.spine-legend span { display: inline-flex; align-items: center; gap: 8px; }
+.spine-legend .sw { display: inline-block; }
+@media (max-width: 520px) { .spine-shelf { --row: 196px; padding: 0 8px; } .spine-cell .spine { max-height: 170px; } }
+@media (prefers-reduced-motion: reduce) { .spine { transition: none; } }
 .tile-link { display: block; }
 .tile-link:hover .cover { transform: translateY(-4px) rotate(-0.6deg); box-shadow: var(--shadow-cover), 0 24px 36px -18px rgba(30, 20, 10, 0.35); }
 .tile-meta { padding-top: 12px; }
@@ -770,6 +810,9 @@ a.hl:hover { transform: translateY(-2px); box-shadow: var(--shadow), inset 0 0 0
 .tile-only { flex-direction: column; align-items: flex-start; justify-content: center; gap: 6px; }
 .hl-value { font: 400 1.7rem/1.1 var(--serif); letter-spacing: -0.02em; }
 .year-shelf { display: flex; flex-wrap: wrap; gap: 14px; }
+.year-card-preview { aspect-ratio: 4 / 5; width: min(100%, 380px); align-self: center; border-radius: var(--r-sm); background: var(--surface-2); box-shadow: var(--shadow), inset 0 0 0 1px var(--line); overflow: hidden; }
+.year-card-preview img { width: 100%; height: 100%; }
+.year-card-preview[aria-busy='true'] { animation: pulse 1.4s ease-in-out infinite alternate; }
 .year-shelf .cover-sm { --w: 72px; }
 .year-shelf a:hover .cover { transform: translateY(-4px); }
 
