@@ -17,6 +17,9 @@ const FIELD_LABELS: Record<string, string> = {
 }
 
 /** Catalogue tools for the super admin: change history and merging duplicates. */
+// Volumes often share a title ("Sri Brhad-bhagavatamrta"), so show the subtitle to tell them apart.
+const fullTitle = (w: Work) => (w.subtitle ? `${w.title}: ${w.subtitle}` : w.title)
+
 export function AdminPanel({ work, editions }: { work: Work; editions: Edition[] }) {
   const store = useStore()
   const toast = useToast()
@@ -35,7 +38,7 @@ export function AdminPanel({ work, editions }: { work: Work; editions: Edition[]
     if (q.trim().length < 2) { setResults([]); return }
     const t = setTimeout(async () => {
       const remote = await store.backend?.searchCatalog(q, []).catch(() => null)
-      const local = store.data.works.filter((w) => w.title.toLowerCase().includes(q.toLowerCase()))
+      const local = store.data.works.filter((w) => fullTitle(w).toLowerCase().includes(q.toLowerCase()))
       const all = [...local, ...(remote?.works ?? [])].filter((w, i, arr) => w.id !== work.id && arr.findIndex((x) => x.id === w.id) === i)
       setResults(all.slice(0, 6))
     }, 300)
@@ -64,7 +67,7 @@ export function AdminPanel({ work, editions }: { work: Work; editions: Edition[]
               <li key={w.id}>
                 <button className="result" onClick={() => setTarget(w)}>
                   <Cover work={w} size="xs" />
-                  <div className="result-main"><b>{w.title}</b><span>{w.authors.join(', ')}</span></div>
+                  <div className="result-main"><b>{fullTitle(w)}</b><span>{w.authors.join(', ')}{store.entryByWork.has(w.id) ? ' · on your shelves' : ''}</span></div>
                 </button>
               </li>
             ))}
@@ -109,7 +112,7 @@ export function AdminPanel({ work, editions }: { work: Work; editions: Edition[]
           }
         }}
       >
-        <p><b>{work.title}</b> will be folded into <b>{target?.title}</b> by {target?.authors.join(', ')}. This can’t be undone, but every change is recorded in the history.</p>
+        <p><b>{fullTitle(work)}</b> will be folded into <b>{target && fullTitle(target)}</b> by {target?.authors.join(', ')}. This can’t be undone, but every change is recorded in the history.</p>
       </ConfirmSheet>
     </section>
   )
