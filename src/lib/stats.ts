@@ -62,6 +62,58 @@ export function completions(
   return out
 }
 
+/**
+ * Pages and listening time, placed on the days you read them. Each progress update counts on its
+ * day; whatever a finished book still has left counts on the day you finished it. So a book read
+ * half in 2025 and half in 2026 puts half its pages in each year, while the book itself counts as
+ * finished in 2026. Amounts only ever add up to the furthest point you'd reached: going back
+ * (a correction, or rereading a chapter) never takes pages away from a day already counted.
+ */
+export interface Slice {
+  readId: string
+  medium: Medium
+  /** Missing when the finish had no date: counted in all-time totals only. */
+  year?: number
+  month?: number
+  pages: number
+  minutes: number
+}
+
+export function readingSlices(reads: Read[], logs: LogPoint[], lk: Lookup): Slice[] {
+  const byRead = new Map<string, LogPoint[]>()
+  for (const l of logs) {
+    const arr = byRead.get(l.readId)
+    if (arr) arr.push(l)
+    else byRead.set(l.readId, [l])
+  }
+  const out: Slice[] = []
+  const put = (readId: string, medium: Medium, date: string | undefined, amount: number) => {
+    if (amount <= 0) return
+    const year = yearOf(date)
+    const month = date && date.length >= 7 ? parseInt(date.slice(5, 7), 10) - 1 : undefined
+    out.push({ readId, medium, year, month, pages: medium === 'audio' ? 0 : amount, minutes: medium === 'audio' ? amount : 0 })
+  }
+  for (const r of reads) {
+    const entry = lk.entries.get(r.entryId)
+    if (!entry || !lk.works.has(entry.workId)) continue
+    const edition = lk.editions.get(r.editionId ?? entry.editionId ?? '')
+    const medium = mediumOf(edition?.format)
+    const total = (medium === 'audio' ? edition?.durationMin : edition?.pages) ?? 0
+    // Furthest point reached so far, per unit (a read can switch between print and audio).
+    const pos: Record<Medium, number> = { print: 0, ebook: 0, audio: 0 }
+    const high: Record<Medium, number> = { print: 0, ebook: 0, audio: 0 }
+    for (const l of (byRead.get(r.id) ?? []).sort((a, b) => a.on.localeCompare(b.on))) {
+      const m = l.medium
+      pos[m] += l.amount
+      const cap = m === medium && total ? total : Infinity
+      const reached = Math.min(pos[m], cap)
+      if (reached > high[m]) { put(r.id, m, l.on, reached - high[m]); high[m] = reached }
+    }
+    if (r.state === 'finished' && total) put(r.id, medium, r.finishedOn, total - high[medium])
+  }
+  return out
+}
+
 /** A round axis maximum at or above `v`. */
 export function niceMax(v: number): number {
   // Below 10, an even maximum keeps the half-way gridline on a whole number (3 → 4, not 1.5).
@@ -97,7 +149,8 @@ export interface YearSummary {
 
 const zeroMedium = (): Record<Medium, number> => ({ print: 0, ebook: 0, audio: 0 })
 
-export function summarize(items: Completion[], year: number): YearSummary {
+/** One year's summary. With `slices`, pages and listening time follow the days you read, not the finish date. */
+export function summarize(items: Completion[], year: number, slices?: Slice[]): YearSummary {
   const ys = items.filter((c) => c.year === year)
   const monthly = Array.from({ length: 12 }, () => ({ books: zeroMedium(), pages: 0, minutes: 0 }))
   const byMedium = zeroMedium()
@@ -107,12 +160,16 @@ export function summarize(items: Completion[], year: number): YearSummary {
   let pages = 0, minutes = 0, rsum = 0, rn = 0, dsum = 0, dn = 0
   for (const c of ys) {
     byMedium[c.medium]++
-    pages += c.pages
-    minutes += c.minutes
+    if (!slices) {
+      pages += c.pages
+      minutes += c.minutes
+    }
     if (c.month != null) {
       monthly[c.month].books[c.medium]++
-      monthly[c.month].pages += c.pages
-      monthly[c.month].minutes += c.minutes
+      if (!slices) {
+        monthly[c.month].pages += c.pages
+        monthly[c.month].minutes += c.minutes
+      }
     }
     if (c.rating) {
       rsum += c.rating
@@ -122,6 +179,15 @@ export function summarize(items: Completion[], year: number): YearSummary {
     if (c.days) { dsum += c.days; dn++ }
     for (const a of c.work.authors) authors.set(a, (authors.get(a) ?? 0) + 1)
     for (const g of c.work.genres) genres.set(g, (genres.get(g) ?? 0) + 1)
+  }
+  for (const sl of slices ?? []) {
+    if (sl.year !== year) continue
+    pages += sl.pages
+    minutes += sl.minutes
+    if (sl.month != null) {
+      monthly[sl.month].pages += sl.pages
+      monthly[sl.month].minutes += sl.minutes
+    }
   }
   const withLen = ys.filter((c) => c.pages > 0)
   const top = (m: Map<string, number>) =>

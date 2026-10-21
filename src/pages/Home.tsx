@@ -15,7 +15,7 @@ import { pageEquivalent, streak, summarize } from '../lib/stats'
 import type { Read } from '../lib/types'
 import { compact, fmtDate, plural, today } from '../lib/util'
 import { useStore } from '../state/store'
-import { useCompletions, useSeries, useYearProgress } from './hooks'
+import { useCompletions, useReadingSlices, useSeries, useYearProgress } from './hooks'
 import { seriesSlug } from '../lib/series'
 
 function greeting() {
@@ -36,7 +36,8 @@ export function Home() {
   const { series } = useSeries()
   const nextInSeries = series.filter((x) => x.next).slice(0, 6)
   const year = new Date().getFullYear()
-  const sum = useMemo(() => summarize(comps, year), [comps, year])
+  const slices = useReadingSlices()
+  const sum = useMemo(() => summarize(comps, year, slices), [comps, year, slices])
   const st = useMemo(() => streak(data.logs), [data.logs])
   const loggedToday = data.logs.some((l) => l.on === today())
 

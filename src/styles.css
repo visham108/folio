@@ -1279,3 +1279,4 @@ kbd { display: inline-flex; align-items: center; min-width: 20px; height: 20px; 
 .tgroup { font-size: 1rem; margin: 0; padding: 14px 16px 6px; border-bottom: 1px solid var(--line); }
 .group-link { color: var(--ink); }
 .group-link:hover { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
+.hero-note { margin: -4px 0 10px; }

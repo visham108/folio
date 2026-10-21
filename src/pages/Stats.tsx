@@ -14,7 +14,7 @@ import { dailyActivity, pageEquivalent, summarize, undated, yearsWithData, type 
 import { goalFor, type Medium } from '../lib/types'
 import { compact, fmtDate, fmtDuration, fmtNumber, monthName, plural } from '../lib/util'
 import { useStore } from '../state/store'
-import { useCompletions } from './hooks'
+import { useCompletions, useReadingSlices } from './hooks'
 
 type Metric = 'books' | 'pages' | 'hours' | 'combined'
 
@@ -24,6 +24,8 @@ export function Stats() {
   const { data } = useStore()
   const settings = data.settings
   const all = useCompletions()
+  // Pages and hours fall on the days you read them, so a book spanning New Year splits across both.
+  const slices = useReadingSlices()
   const years = useMemo(() => {
     const ys = yearsWithData(all)
     const cur = new Date().getFullYear()
@@ -36,7 +38,7 @@ export function Stats() {
   const [goalOpen, setGoalOpen] = useState(false)
   const [cardOpen, setCardOpen] = useState(false)
 
-  const sum = useMemo(() => summarize(all, year), [all, year])
+  const sum = useMemo(() => summarize(all, year, slices), [all, year, slices])
   const heat = useMemo(() => dailyActivity(data.logs, all, year, settings), [data.logs, all, year, settings])
 
   const value = (c: Pick<Completion, 'pages' | 'minutes'> & { n?: number }, m: Medium): Record<Metric, number> => ({
@@ -49,28 +51,30 @@ export function Stats() {
   const columns: ColumnDatum[] = useMemo(() => {
     const buckets = allTime ? years.map((y) => ({ key: String(y), label: String(y) })) : Array.from({ length: 12 }, (_, i) => ({ key: String(i), label: monthName(i) }))
     return buckets.map((b) => {
-      const items = all.filter((c) => (allTime ? c.year === +b.key : c.year === year && c.month === +b.key))
+      const inBucket = (x: { year?: number; month?: number }) => (allTime ? x.year === +b.key : x.year === year && x.month === +b.key)
       const parts: Partial<Record<Medium, number>> = {}
-      for (const c of items) parts[c.medium] = (parts[c.medium] ?? 0) + value(c, c.medium)[metric]
+      // Books count when finished; pages and hours when read.
+      for (const c of metric === 'books' ? all.filter(inBucket) : slices.filter(inBucket)) parts[c.medium] = (parts[c.medium] ?? 0) + value(c, c.medium)[metric]
       return { key: b.key, label: b.label, parts }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [all, year, allTime, metric, years, settings])
+  }, [all, slices, year, allTime, metric, years, settings])
 
   const totals = useMemo(() => {
     const items = allTime ? all : sum.items
+    const read = allTime ? slices : slices.filter((x) => x.year === year)
     return {
       books: items.length,
-      pages: items.reduce((s, c) => s + c.pages, 0),
-      minutes: items.reduce((s, c) => s + c.minutes, 0),
-      combined: items.reduce((s, c) => s + pageEquivalent(c, settings), 0),
+      pages: read.reduce((s, c) => s + c.pages, 0),
+      minutes: read.reduce((s, c) => s + c.minutes, 0),
+      combined: read.reduce((s, c) => s + pageEquivalent(c, settings), 0),
       byMedium: MEDIA.map((m) => ({ ...m, n: items.filter((c) => c.medium === m.id).length })),
       rereads: items.filter((c) => c.isReread).length,
       undated: allTime ? undated(items).length : 0,
       // Finished books whose edition has no page count (or listening time), so they add nothing to those totals.
       noLength: items.filter((c) => !c.pages && !c.minutes).length,
     }
-  }, [all, sum, allTime, settings])
+  }, [all, slices, sum, allTime, year, settings])
 
   const fmt = metric === 'hours' ? (n: number) => (n < 10 ? n.toFixed(1).replace(/\.0$/, '') : compact(n)) : compact
   const unit = metric === 'hours' ? 'h' : ''
@@ -125,10 +129,11 @@ export function Stats() {
           <div className="hero-num">{totals.books}</div>
           <p className="hero-sentence">
             {totals.books === 1 ? 'book' : 'books'} finished{allTime ? '' : ` in ${year}`}
-            {totals.noLength === totals.books ? '.' : <>: <b>{totals.pages.toLocaleString()}</b> pages read and{' '}
+            {totals.noLength === totals.books && !totals.pages && !totals.minutes ? '.' : <>: <b>{totals.pages.toLocaleString()}</b> pages read and{' '}
               <b>{Math.floor(totals.minutes / 60).toLocaleString()} hours</b> listened.</>}
             {totals.rereads > 0 && <> {totals.rereads === 1 ? 'One was a reread.' : `${totals.rereads} were rereads.`}</>}
           </p>
+          {!allTime && <p className="muted tiny hero-note">Pages and hours count in the year you read them, going by your progress updates; a book counts in the year you finish it.</p>}
           <div className="split" aria-label="Books by format">
             {totals.byMedium.filter((m) => m.n).map((m) => (
               <motion.span key={m.id} className={`split-seg seg-${m.id}`} initial={{ flexGrow: 0 }} animate={{ flexGrow: m.n }} transition={{ type: 'spring', stiffness: 90, damping: 20 }} />

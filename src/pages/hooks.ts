@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { buildSeries, type Series } from '../lib/series'
 import { goalFor, type Work } from '../lib/types'
-import { completions, type Completion, goalPace } from '../lib/stats'
+import { completions, readingSlices, type Completion, goalPace, type Slice } from '../lib/stats'
 import { useStore } from '../state/store'
 
 export function useCompletions(includeDnf = false): Completion[] {
@@ -9,6 +9,15 @@ export function useCompletions(includeDnf = false): Completion[] {
   return useMemo(
     () => completions(data.reads, { works, editions, entries }, { includeDnf }),
     [data.reads, works, editions, entries, includeDnf],
+  )
+}
+
+/** Pages and listening time on the days you read them (see readingSlices). */
+export function useReadingSlices(): Slice[] {
+  const { data, works, editions, entries } = useStore()
+  return useMemo(
+    () => readingSlices(data.reads, data.logs, { works, editions, entries }),
+    [data.reads, data.logs, works, editions, entries],
   )
 }
 
