@@ -38,6 +38,9 @@ export function Cover({
           alt=""
           loading="lazy"
           decoding="async"
+          // Dragging a book drags its tile, not the picture: Chrome cancels the drag of an image
+          // that hasn't finished loading, so a slow cover would otherwise break dropping onto a pile.
+          draggable={false}
           // Only request CORS where the host supports it (our own storage), so the
           // ambient-colour sampler can read pixels; other hosts would refuse the image.
           crossOrigin={corsReadable(url) ? 'anonymous' : undefined}
