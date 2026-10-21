@@ -1,5 +1,6 @@
 import { RotateCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { checkForUpdate } from '../lib/appVersion'
 import { useStore } from '../state/store'
 import { useToast } from '../state/toast'
 
@@ -27,6 +28,7 @@ export function RefreshControl({ className = '' }: { className?: string }) {
 
   const run = async () => {
     setBusy(true)
+    checkForUpdate() // a newer Folio, if one has been deployed, offers itself too
     const res = await refresh()
     setBusy(false)
     if (res === 'ok') toast('Library refreshed')

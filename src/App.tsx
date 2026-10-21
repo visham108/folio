@@ -2,6 +2,7 @@ import { MotionConfig } from 'framer-motion'
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Shell } from './components/Shell'
+import { UpdateNotice } from './components/UpdateNotice'
 import { Home } from './pages/Home'
 import { Library } from './pages/Library'
 import { Login } from './pages/Login'
@@ -86,6 +87,7 @@ function Routed() {
   return (
     <>
     <OfflineNotice />
+    <UpdateNotice />
     <Suspense fallback={<div className="page-loading" aria-busy="true" />}>
     <Routes>
       <Route element={<Shell />}>

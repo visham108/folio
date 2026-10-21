@@ -546,3 +546,21 @@ test('desktop: search everything, hover previews, drag onto a pile', async ({ pa
   await expect(page.locator('.tile-title', { hasText: title! })).toBeVisible()
   expect(errors).toEqual([])
 })
+
+test('offers to reload when a newer version has been deployed', async ({ page }) => {
+  const errors = watchErrors(page)
+  await startOnDevice(page)
+  await expect(page.locator('.update-notice')).toHaveCount(0)
+  // Pretend a new build went live: version.json now names a different build.
+  await page.route('**/version.json*', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'newer-build' }) }))
+  // Refresh lives in the sidebar on desktop and in Settings on every screen size.
+  await page.goto('/#/settings')
+  await page.getByRole('button', { name: 'Refresh library' }).filter({ visible: true }).first().click()
+  const notice = page.getByRole('region', { name: 'Update available' })
+  await expect(notice).toContainText('A new version of Folio is ready')
+  await expect(notice.getByRole('button', { name: 'Reload' })).toBeVisible()
+  // "Not now" hides it until a newer build than that one appears.
+  await notice.getByRole('button', { name: 'Not now' }).click()
+  await expect(notice).toHaveCount(0)
+  expect(errors).toEqual([])
+})

@@ -25,6 +25,7 @@ rereads, editions and stats that are worth looking at.
 | **Shared catalogue, with an owner** | Anyone can add books and editions; people can edit what they added. One super admin can edit or remove anything, merge duplicate books, and see the full change history. Every catalogue change is logged with who made it and the before/after values. |
 | **Your data** | Full backup and restore (JSON), plus spreadsheet exports: a Goodreads-format CSV that Goodreads and StoryGraph can import, and a full CSV with one row per read. |
 | **Works offline** | Once loaded, Folio opens without a connection. Changes made offline are saved on the device and sync, in order, when you're back online. |
+| **Always the latest version** | After a deploy, an open copy of Folio notices (when it opens, when you come back to it, every half hour, and when you press Refresh) and offers *Reload* to start using the new version. |
 
 ### What's required when adding a book
 
