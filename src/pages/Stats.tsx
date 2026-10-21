@@ -8,6 +8,7 @@ import { AllTimePatterns, YearPatterns } from '../components/StatsPatterns'
 import { Empty, Ring, Segmented } from '../components/ui'
 import { GoalSheet } from '../components/GoalSheet'
 import { YearCardSheet } from '../components/YearCard'
+import { ReadingDiary } from '../components/ReadingDiary'
 import { FillLengthsButton } from '../components/FillLengths'
 import { dailyActivity, pageEquivalent, summarize, undated, yearsWithData, type Completion } from '../lib/stats'
 import { goalFor, type Medium } from '../lib/types'
@@ -242,6 +243,8 @@ export function Stats() {
           </div>
 
           <YearPatterns year={year} items={all} />
+
+          <ReadingDiary year={year} items={sum.items} heat={heat} />
 
           <section className="section">
             <div className="section-head"><h2>Your {year} shelf</h2><span className="muted small">In the order you finished them</span></div>

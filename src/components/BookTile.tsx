@@ -3,7 +3,9 @@ import { Check, Heart, RotateCcw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { Entry } from '../lib/types'
 import { useStore } from '../state/store'
+import { useBookPreview } from './BookPreview'
 import { Cover } from './Cover'
+import { bookDragProps } from './dragBook'
 import { Stars } from './ui'
 
 export function BookTile({ entry, index = 0, meta, selecting = false, selected = false, onToggle }: {
@@ -12,6 +14,7 @@ export function BookTile({ entry, index = 0, meta, selecting = false, selected =
   selecting?: boolean; selected?: boolean; onToggle?: () => void
 }) {
   const { works, editionOf, readsByEntry } = useStore()
+  const preview = useBookPreview(entry.id)
   const work = works.get(entry.workId)
   if (!work) return null
   const ed = editionOf(entry)
@@ -29,6 +32,8 @@ export function BookTile({ entry, index = 0, meta, selecting = false, selected =
         role={selecting ? 'checkbox' : undefined}
         aria-checked={selecting ? selected : undefined}
         onClick={selecting ? (e) => { e.preventDefault(); onToggle?.() } : undefined}
+        {...bookDragProps(entry.id)}
+        {...(selecting ? {} : preview)}
       >
         <div className="tile-cover">
           <Cover work={work} edition={ed} size="md" />

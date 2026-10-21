@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { ArrowRight, Flame, Headphones, Plus } from 'lucide-react'
+import { ArrowRight, Check, Flame, Headphones, Plus, Shuffle } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { BookTile } from '../components/BookTile'
@@ -8,11 +8,12 @@ import { Notices } from '../components/Notices'
 import { RefreshControl } from '../components/Refresh'
 import { GoalSheet } from '../components/GoalSheet'
 import { ProgressSheet } from '../components/ProgressSheet'
+import { QuickSteps } from '../components/QuickProgress'
 import { Bar, Empty, Ring, Stars } from '../components/ui'
 import { progressInfo } from '../lib/progress'
 import { pageEquivalent, streak, summarize } from '../lib/stats'
 import type { Read } from '../lib/types'
-import { compact, fmtDate, plural } from '../lib/util'
+import { compact, fmtDate, plural, today } from '../lib/util'
 import { useStore } from '../state/store'
 import { useCompletions, useSeries, useYearProgress } from './hooks'
 import { seriesSlug } from '../lib/series'
@@ -30,11 +31,14 @@ export function Home() {
   const yp = useYearProgress()
   const comps = useCompletions()
   const [sheetRead, setSheetRead] = useState<Read>()
+  const [finishing, setFinishing] = useState(false)
+  const openSheet = (r: Read, finish = false) => { setFinishing(finish); setSheetRead(r) }
   const { series } = useSeries()
   const nextInSeries = series.filter((x) => x.next).slice(0, 6)
   const year = new Date().getFullYear()
   const sum = useMemo(() => summarize(comps, year), [comps, year])
   const st = useMemo(() => streak(data.logs), [data.logs])
+  const loggedToday = data.logs.some((l) => l.on === today())
 
   const current = data.entries
     .filter((e) => e.status === 'reading')
@@ -107,6 +111,7 @@ export function Home() {
       <section className="section">
         <div className="section-head">
           <h2>Currently reading</h2>
+          {st.current > 0 && !loggedToday && current.length > 0 && <span className="muted small streak-nudge"><Flame size={13} /> Log anything today to keep your {st.current}-day streak</span>}
           <Link to="/library/reading" className="link">All <ArrowRight size={14} /></Link>
         </div>
         {current.length === 0 ? (
@@ -142,10 +147,14 @@ export function Home() {
                       <Bar pct={info.pct} tone={audio ? 'audio' : 'accent'} label="Progress" />
                       <div className="now-progress-row"><span>{info.label}</span><span className="muted">{Math.round(info.pct * 100)}%</span></div>
                     </div>
-                    <div className="now-actions">
-                      <button className="btn btn-soft" onClick={() => read && setSheetRead(read)}>Update progress</button>
-                      {read?.startedOn && <span className="muted small">since {fmtDate(read.startedOn, { year: false })}</span>}
-                    </div>
+                    {read && (
+                      <div className="now-actions">
+                        <QuickSteps read={read} onFinish={() => openSheet(read, true)} />
+                        <button className="btn btn-ghost sm" onClick={() => openSheet(read)}>Update…</button>
+                        <button className="btn btn-ghost sm" onClick={() => openSheet(read, true)}><Check size={14} /> Finished</button>
+                      </div>
+                    )}
+                    {read?.startedOn && <span className="muted small now-since">Reading since {fmtDate(read.startedOn, { year: false })}</span>}
                   </div>
                 </motion.article>
               )
@@ -178,6 +187,7 @@ export function Home() {
         <section className="section">
           <div className="section-head">
             <h2>Up next</h2>
+            <Link to="/next" className="link push"><Shuffle size={14} /> Help me choose</Link>
             <Link to="/library/want" className="link">Want to read <ArrowRight size={14} /></Link>
           </div>
           <div className="shelf-row">
@@ -214,7 +224,7 @@ export function Home() {
           </ul>
         </section>
       )}
-      <ProgressSheet read={sheetRead && data.reads.find((r) => r.id === sheetRead.id)} open={!!sheetRead} onClose={() => setSheetRead(undefined)} />
+      <ProgressSheet read={sheetRead && data.reads.find((r) => r.id === sheetRead.id)} open={!!sheetRead} finishing={finishing} onClose={() => setSheetRead(undefined)} />
     </div>
   )
 }

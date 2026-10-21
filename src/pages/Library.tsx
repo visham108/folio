@@ -1,18 +1,20 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { CheckSquare, Grid2x2, LibraryBig, List, Pencil, Plus, Search, Sparkles, Table2, Trash2, X } from 'lucide-react'
+import { CheckSquare, Grid2x2, LibraryBig, List, Pencil, Plus, Search, Shuffle, Sparkles, Table2, Trash2, X } from 'lucide-react'
 import { titleCase } from '../lib/titleCase'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { BookTile } from '../components/BookTile'
 import { BulkEditSheet } from '../components/BulkEdit'
+import { BOOK_DRAG, isBookDrag } from '../components/dragBook'
 import { LibraryTable } from '../components/LibraryTable'
 import { SpineShelf, spineHue } from '../components/SpineShelf'
 import { Cover } from '../components/Cover'
 import { ConfirmSheet, Empty, Segmented, Sheet, Stars } from '../components/ui'
 import { fold } from '../lib/match'
 import { STATUSES, mediumOf, type Entry, type Shelf } from '../lib/types'
-import { fmtDate, fmtDuration, uid } from '../lib/util'
+import { fmtDate, fmtDuration, plural, uid } from '../lib/util'
 import { useStore } from '../state/store'
+import { useToast } from '../state/toast'
 import { findSmart, nextInSeriesIds, SMART_SHELVES, smartId } from '../lib/smartShelves'
 import { useSeries } from './hooks'
 
@@ -59,6 +61,44 @@ export function Library() {
   const [bulkOpen, setBulkOpen] = useState(false)
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const stopSelecting = () => { setSelecting(false); setSelected(new Set()) }
+
+  // Drag a book (or, while selecting, every selected book) onto a pile, favourites or one of your shelves.
+  const toast = useToast()
+  const [dragOver, setDragOver] = useState<string>()
+  const droppable = (id: string) => STATUSES.some((s) => s.id === id) || id === 'favorites' || data.shelves.some((s) => s.id === id)
+  const dropOn = (target: string, e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(undefined)
+    document.body.classList.remove('dragging-book')
+    const id = e.dataTransfer.getData(BOOK_DRAG)
+    if (!id) return
+    const ids = selecting && selected.has(id) ? visibleSelected.map((x) => x.id) : [id]
+    const books = ids.map((i) => data.entries.find((x) => x.id === i)).filter((x): x is Entry => !!x)
+    const status = STATUSES.find((s) => s.id === target)
+    const shelfTo = data.shelves.find((s) => s.id === target)
+    const name = status?.label ?? shelfTo?.name ?? 'Favourites'
+    if (status) {
+      const moving = books.filter((b) => b.status !== status.id)
+      for (const b of moving) store.setStatus(b.id, status.id)
+      toast(moving.length ? `Moved ${plural(moving.length, 'book')} to ${name}` : `Already in ${name}`)
+      return
+    }
+    const adding = books.filter((b) => (shelfTo ? !b.shelfIds.includes(shelfTo.id) : !b.favorite))
+    for (const b of adding) store.updateEntry(b.id, shelfTo ? { shelfIds: [...b.shelfIds, shelfTo.id] } : { favorite: true })
+    toast(adding.length ? `Added ${plural(adding.length, 'book')} to ${name}` : `Already in ${name}`, adding.length ? {
+      action: { label: 'Undo', run: () => { for (const b of adding) store.updateEntry(b.id, shelfTo ? { shelfIds: b.shelfIds } : { favorite: false }) } },
+    } : undefined)
+  }
+  const dropProps = (id: string) => (droppable(id) ? {
+    onDragOver: (e: React.DragEvent) => {
+      if (!isBookDrag(e)) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      if (dragOver !== id) setDragOver(id)
+    },
+    onDragLeave: () => setDragOver((d) => (d === id ? undefined : d)),
+    onDrop: (e: React.DragEvent) => dropOn(id, e),
+  } : {})
 
   const shelf = data.shelves.find((s) => s.id === pile)
   const smart = findSmart(pile)
@@ -180,6 +220,7 @@ export function Library() {
         </div>
         <div className="head-actions">
           {shelf && <button className="btn btn-ghost sm" onClick={() => openShelfEditor(shelf)}><Pencil size={14} /> Edit shelf</button>}
+          {pile === 'want' && list.length > 1 && <Link to="/next" className="btn btn-ghost sm"><Shuffle size={14} /> Help me choose</Link>}
           <Link to="/add" className="btn btn-primary hide-mobile"><Plus size={18} /> Add a book</Link>
         </div>
       </header>
@@ -189,8 +230,9 @@ export function Library() {
           <button
             key={p.id}
             aria-current={pile === p.id ? 'page' : undefined}
-            className={`pile ${pile === p.id ? 'on' : ''}`}
+            className={`pile ${pile === p.id ? 'on' : ''} ${droppable(p.id) ? 'droppable' : ''} ${dragOver === p.id ? 'drop-over' : ''}`}
             onClick={() => nav(p.id === 'all' ? '/library' : `/library/${p.id}`)}
+            {...dropProps(p.id)}
           >
             {pile === p.id && <motion.span layoutId="pile-pill" className="pile-pill" transition={{ type: 'spring', stiffness: 500, damping: 40 }} />}
             <span className="pile-label">{p.label}{counts[p.id] ? <i>{counts[p.id]}</i> : null}</span>

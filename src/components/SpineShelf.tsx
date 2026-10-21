@@ -2,6 +2,8 @@ import { Link } from 'react-router-dom'
 import { mediumOf, STATUSES, type Entry } from '../lib/types'
 import { coverPalette, fmtDuration, hashString } from '../lib/util'
 import { useStore } from '../state/store'
+import { useBookPreview } from './BookPreview'
+import { bookDragProps } from './dragBook'
 
 /**
  * Books as spines on a shelf. Spine width follows length (audiobooks in page-equivalents), the
@@ -39,6 +41,7 @@ export function SpineShelf({ entries, grouped, selecting, selected, onToggle }: 
 
 function Spine({ entry, selecting, selected, onToggle }: { entry: Entry; selecting?: boolean; selected?: boolean; onToggle?: (id: string) => void }) {
   const store = useStore()
+  const preview = useBookPreview(entry.id)
   const work = store.works.get(entry.workId)!
   const ed = store.editionOf(entry)
   const medium = mediumOf(ed?.format)
@@ -55,11 +58,13 @@ function Spine({ entry, selecting, selected, onToggle }: { entry: Entry; selecti
         to={`/book/${work.id}`}
         className={`spine ${entry.status === 'reading' ? 'raised' : ''} ${selecting && selected ? 'selected' : ''}`}
         style={{ width, height, background: bg, color: fg }}
-        title={label}
+        title={preview ? undefined : label}
         aria-label={label}
         role={selecting ? 'checkbox' : undefined}
         aria-checked={selecting ? !!selected : undefined}
         onClick={selecting ? (ev) => { ev.preventDefault(); onToggle?.(entry.id) } : undefined}
+        {...bookDragProps(entry.id)}
+        {...(selecting ? {} : preview)}
       >
         <span className="spine-title">{work.title}</span>
         {medium !== 'print' && <span className={`spine-band sw-${medium}`} aria-hidden />}
