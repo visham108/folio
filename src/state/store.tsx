@@ -82,7 +82,7 @@ interface Store {
   /** Removes a book from your library; returns a function that puts it back. */
   removeEntry(id: string): () => void
   deleteEdition(id: string): Promise<void>
-  mergeWorks(fromId: string, intoId: string): Promise<void>
+  mergeWorks(fromId: string, intoId: string, opts?: { absorb?: boolean }): Promise<void>
   /** Move a book to a pile. `undated` records a finish without today's date (for bulk edits). */
   setStatus(entryId: string, s: Status, opts?: { undated?: boolean }): void
   /** Make your copy of a book this format: switches to (or creates) an edition in that format. */
@@ -476,10 +476,10 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
         reads: d.reads.map((r) => (r.editionId === id ? { ...r, editionId: undefined } : r)),
       }))
     },
-    async mergeWorks(fromId, intoId) {
+    async mergeWorks(fromId, intoId, opts) {
       const b = be.current
       if (!b) return
-      await b.mergeWorks(fromId, intoId)
+      await b.mergeWorks(fromId, intoId, opts)
       setData(await b.loadAll())
     },
 

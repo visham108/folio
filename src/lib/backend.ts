@@ -42,7 +42,8 @@ export interface Backend {
   /** Admin only: remove an edition from the shared catalogue. */
   deleteEdition(id: string): Promise<void>
   /** Admin only: fold a duplicate book into another (editions and readers' shelves move with it). */
-  mergeWorks(fromId: string, intoId: string): Promise<void>
+  /** Fold a duplicate book into another. `absorb` combines its editions into the kept copy instead of listing them. */
+  mergeWorks(fromId: string, intoId: string, opts?: { absorb?: boolean }): Promise<void>
   /** Admin only: recent catalogue changes for a book and its editions. */
   history(recordIds: string[]): Promise<CatalogueChange[]>
   /** Store a processed cover image; returns a URL usable in <img>. */

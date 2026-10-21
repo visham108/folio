@@ -211,7 +211,14 @@ export async function createCloudBackend(): Promise<Backend | null> {
     deleteRead: (id) => ok(sb.from('reads').delete().eq('id', id)),
     saveLog: (l) => upsert('logs', [logTo(l)]),
     deleteEdition: (id) => ok(sb.from('editions').delete().eq('id', id)),
-    mergeWorks: (fromId, intoId) => ok(sb.rpc('merge_works', { from_id: fromId, into_id: intoId })),
+    async mergeWorks(fromId, intoId, opts) {
+      const { error } = await sb.rpc('merge_works', { from_id: fromId, into_id: intoId, ...(opts?.absorb ? { absorb: true } : {}) })
+      // The database hasn't been given the "combine" option yet (migration 20261021000000).
+      if (error && opts?.absorb && /function .*merge_works|PGRST202/i.test(`${error.code} ${error.message}`)) {
+        throw new Error('Combining copies needs a database update first. Use “Keep both editions” for now.')
+      }
+      if (error) throw error
+    },
     async history(ids) {
       if (!ids.length) return []
       const { data: rows0, error } = await sb.from('catalogue_changes').select('*').in('record_id', ids).order('changed_at', { ascending: false }).limit(40)

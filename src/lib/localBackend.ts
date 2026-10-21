@@ -1,5 +1,6 @@
 import type { Backend } from './backend'
 import { mergeEntryFields } from './merge'
+import { planMerge } from './mergePlan'
 import { emptySnapshot, type Snapshot } from './types'
 
 /** On-device storage (IndexedDB). Used before sign-in or when no Supabase project is configured. */
@@ -70,7 +71,7 @@ type Op =
   | { t: 'deleteRead'; id: string }
   | { t: 'deleteEdition'; id: string }
   | { t: 'deleteShelf'; id: string }
-  | { t: 'merge'; from: string; into: string }
+  | { t: 'merge'; from: string; into: string; absorb?: boolean }
   | { t: 'settings'; settings: Snapshot['settings'] }
 interface Pending { op: Op; done: () => void; fail: (e: unknown) => void }
 
@@ -106,9 +107,29 @@ function applyOp(s: Snapshot, op: Op) {
       s.entries = s.entries.map((e) => (e.shelfIds.includes(op.id) ? { ...e, shelfIds: e.shelfIds.filter((x) => x !== op.id) } : e))
       break
     case 'merge': {
-      s.editions = s.editions.map((e) => (e.workId === op.from ? { ...e, workId: op.into } : e))
       const keep = s.entries.find((e) => e.workId === op.into)
       const moving = s.entries.find((e) => e.workId === op.from)
+      const dupWork = s.works.find((w) => w.id === op.from)
+      const keepWork = s.works.find((w) => w.id === op.into)
+      if (dupWork && keepWork) {
+        // Same rules as the shared catalogue (mergePlan / merge_works).
+        const plan = planMerge({
+          dup: dupWork, keep: keepWork,
+          dupEditions: s.editions.filter((e) => e.workId === op.from), keepEditions: s.editions.filter((e) => e.workId === op.into),
+          myKeepEditionId: keep?.editionId, myDupEditionId: moving?.editionId,
+        })
+        s.works = s.works.map((w) => (w.id === op.into ? plan.work : w))
+        if (op.absorb) {
+          const results = new Map(plan.groups.map((g) => [g.into.id, g.result]))
+          const to = (id: string) => plan.target.get(id) ?? id
+          const gone = new Set(plan.groups.flatMap((g) => g.from.map((e) => e.id)))
+          s.editions = s.editions.filter((e) => !gone.has(e.id)).map((e) => results.get(e.id) ?? e)
+          // In place: `keep` and `moving` above must stay the objects in the list.
+          for (const e of s.entries) if (e.editionId && gone.has(e.editionId)) e.editionId = to(e.editionId)
+          s.reads = s.reads.map((r) => (r.editionId && gone.has(r.editionId) ? { ...r, editionId: to(r.editionId) } : r))
+        }
+      }
+      s.editions = s.editions.map((e) => (e.workId === op.from ? { ...e, workId: op.into } : e))
       if (moving && keep) {
         // Keep what you'd recorded on the duplicate: rating, review, tags, shelves…
         Object.assign(keep, mergeEntryFields(keep, moving))
@@ -225,7 +246,7 @@ export function createLocalBackend(): Backend {
     deleteRead: (id) => apply({ t: 'deleteRead', id }),
     saveLog: (l) => upsert('logs', l),
     deleteEdition: (id) => apply({ t: 'deleteEdition', id }),
-    mergeWorks: (fromId, intoId) => apply({ t: 'merge', from: fromId, into: intoId }),
+    mergeWorks: (fromId, intoId, opts) => apply({ t: 'merge', from: fromId, into: intoId, absorb: !!opts?.absorb }),
     async history() {
       return []
     },

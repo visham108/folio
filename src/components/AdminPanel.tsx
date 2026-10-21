@@ -5,9 +5,9 @@ import type { CatalogueChange } from '../lib/backend'
 import type { Edition, Work } from '../lib/types'
 import { fmtDate, localIso } from '../lib/util'
 import { useStore } from '../state/store'
-import { useToast } from '../state/toast'
 import { Cover } from './Cover'
-import { ConfirmSheet } from './ui'
+import { fullTitle } from '../lib/mergePlan'
+import { MergeSheet } from './MergeSheet'
 
 const FIELD_LABELS: Record<string, string> = {
   title: 'title', subtitle: 'subtitle', authors: 'authors', series: 'series', series_index: 'series number', genres: 'genres',
@@ -17,18 +17,13 @@ const FIELD_LABELS: Record<string, string> = {
 }
 
 /** Catalogue tools for the super admin: change history and merging duplicates. */
-// Volumes often share a title ("Sri Brhad-bhagavatamrta"), so show the subtitle to tell them apart.
-const fullTitle = (w: Work) => (w.subtitle ? `${w.title}: ${w.subtitle}` : w.title)
-
 export function AdminPanel({ work, editions }: { work: Work; editions: Edition[] }) {
   const store = useStore()
-  const toast = useToast()
   const nav = useNavigate()
   const [history, setHistory] = useState<CatalogueChange[] | null>(null)
   const [q, setQ] = useState('')
   const [results, setResults] = useState<Work[]>([])
   const [target, setTarget] = useState<Work | null>(null)
-  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     store.backend?.history([work.id, ...editions.map((e) => e.id)]).then(setHistory).catch(() => setHistory([]))
@@ -91,29 +86,8 @@ export function AdminPanel({ work, editions }: { work: Work; editions: Edition[]
         </div>
       </div>
 
-      <ConfirmSheet
-        open={!!target}
-        title="Merge these books?"
-        confirmLabel="Merge"
-        busy={busy}
-        onClose={() => setTarget(null)}
-        onConfirm={async () => {
-          if (!target) return
-          setBusy(true)
-          try {
-            await store.mergeWorks(work.id, target.id)
-            toast(`Merged into ${target.title}`)
-            nav(`/book/${target.id}`, { replace: true })
-          } catch (e) {
-            toast('Merge failed: ' + (e as Error).message, { tone: 'error' })
-          } finally {
-            setBusy(false)
-            setTarget(null)
-          }
-        }}
-      >
-        <p><b>{fullTitle(work)}</b> will be folded into <b>{target && fullTitle(target)}</b> by {target?.authors.join(', ')}. This can’t be undone, but every change is recorded in the history.</p>
-      </ConfirmSheet>
+      <MergeSheet dup={work} dupEditions={editions} target={target} onClose={() => setTarget(null)}
+        onMerged={(t) => nav(`/book/${t.id}`, { replace: true })} />
     </section>
   )
 }

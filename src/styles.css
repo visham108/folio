@@ -1251,3 +1251,20 @@ kbd { display: inline-flex; align-items: center; min-width: 20px; height: 20px; 
 .palette-foot { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 10px 18px; border-top: 1px solid var(--line); background: var(--surface-2); }
 .palette-foot span { display: inline-flex; align-items: center; gap: 4px; }
 @media (max-width: 520px) { .palette-wrap { padding-top: 12px; } .palette-foot { display: none; } }
+
+/* Merge: choose how, and preview the result. */
+.merge-sheet { display: flex; flex-direction: column; gap: 12px; }
+.merge-sheet p { margin: 0; }
+.merge-warn { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: var(--r-sm); background: color-mix(in oklab, #d9a400 14%, var(--surface)); font-size: 0.86rem; }
+.merge-warn svg { flex: none; margin-top: 2px; color: #b07d00; }
+.merge-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.merge-table th, .merge-table td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+.merge-table thead th { font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.merge-table tbody th { font-weight: 500; color: var(--muted); white-space: nowrap; }
+.merge-table tr.filled td:last-child { color: var(--accent-ink); font-weight: 600; }
+.merge-table tr.filled td:last-child svg { margin-left: 4px; vertical-align: -1px; }
+.merge-table tr.lost td:nth-child(3) { text-decoration: line-through; color: var(--muted); }
+.merge-eds { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; }
+.merge-eds .merge-mine { margin-left: 8px; }
+.merge-head { font: 600 0.78rem var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 4px 0 6px; }
+@media (max-width: 640px) { .merge-table tbody th { white-space: normal; } }
