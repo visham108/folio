@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Clock, Gauge, Hourglass, RotateCcw, Ruler, Star, Table2, Zap } from 'lucide-react'
+import { Clock, Gauge, Hourglass, RotateCcw, Ruler, Share2, Star, Table2, Zap } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { BarList, Columns, Heatmap, Legend, MEDIA, type ColumnDatum } from '../components/Charts'
@@ -7,6 +7,8 @@ import { Cover } from '../components/Cover'
 import { AllTimePatterns, YearPatterns } from '../components/StatsPatterns'
 import { Empty, Ring, Segmented } from '../components/ui'
 import { GoalSheet } from '../components/GoalSheet'
+import { YearCardSheet } from '../components/YearCard'
+import { ReadingDiary } from '../components/ReadingDiary'
 import { FillLengthsButton } from '../components/FillLengths'
 import { dailyActivity, pageEquivalent, summarize, undated, yearsWithData, type Completion } from '../lib/stats'
 import { goalFor, type Medium } from '../lib/types'
@@ -32,6 +34,7 @@ export function Stats() {
   const [metric, setMetric] = useState<Metric>('books')
   const [table, setTable] = useState(false)
   const [goalOpen, setGoalOpen] = useState(false)
+  const [cardOpen, setCardOpen] = useState(false)
 
   const sum = useMemo(() => summarize(all, year), [all, year])
   const heat = useMemo(() => dailyActivity(data.logs, all, year, settings), [data.logs, all, year, settings])
@@ -91,10 +94,18 @@ export function Stats() {
 
   return (
     <div className="page stats">
-      <header className="page-head">
-        <p className="eyebrow">Stats</p>
-        <h1 className="display">{allTime ? <>All time, <em>all formats.</em></> : <>{year} <em>in books.</em></>}</h1>
+      <header className="page-head row">
+        <div>
+          <p className="eyebrow">Stats</p>
+          <h1 className="display">{allTime ? <>All time, <em>all formats.</em></> : <>{year} <em>in books.</em></>}</h1>
+        </div>
+        {!allTime && sum.books > 0 && (
+          <div className="head-actions">
+            <button className="btn btn-ghost" onClick={() => setCardOpen(true)}><Share2 size={16} /> Share your year</button>
+          </div>
+        )}
       </header>
+      {!allTime && sum.books > 0 && <YearCardSheet sum={sum} open={cardOpen} onClose={() => setCardOpen(false)} />}
 
       <div className="piles" role="tablist" aria-label="Year">
         {[...years].reverse().map((y) => (
@@ -232,6 +243,8 @@ export function Stats() {
           </div>
 
           <YearPatterns year={year} items={all} />
+
+          <ReadingDiary year={year} items={sum.items} heat={heat} />
 
           <section className="section">
             <div className="section-head"><h2>Your {year} shelf</h2><span className="muted small">In the order you finished them</span></div>

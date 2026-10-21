@@ -14,11 +14,13 @@ const loaders = {
   stats: () => import('./pages/Stats'),
   settings: () => import('./pages/Settings'),
   series: () => import('./pages/SeriesPage'),
+  next: () => import('./pages/WhatNext'),
 }
 const AddBook = lazy(() => loaders.add().then((m) => ({ default: m.AddBook })))
 const BookPage = lazy(() => loaders.book().then((m) => ({ default: m.BookPage })))
 const Stats = lazy(() => loaders.stats().then((m) => ({ default: m.Stats })))
 const SeriesPage = lazy(() => loaders.series().then((m) => ({ default: m.SeriesPage })))
+const WhatNext = lazy(() => loaders.next().then((m) => ({ default: m.WhatNext })))
 const SettingsPage = lazy(() => loaders.settings().then((m) => ({ default: m.SettingsPage })))
 
 function usePreloadScreens(enabled: boolean) {
@@ -33,7 +35,7 @@ import { ToastProvider } from './state/toast'
 
 const TITLES: [RegExp, string][] = [
   [/^\/$/, 'Today'], [/^\/library/, 'Library'], [/^\/book\//, 'Book'], [/^\/add/, 'Add a book'], [/^\/series\//, 'Series'],
-  [/^\/stats/, 'Stats'], [/^\/settings/, 'Settings'],
+  [/^\/stats/, 'Stats'], [/^\/next/, 'What next?'], [/^\/settings/, 'Settings'],
 ]
 
 function useDocumentTitle() {
@@ -96,6 +98,7 @@ function Routed() {
         <Route path="stats" element={<Stats />} />
         <Route path="stats/:year" element={<Stats />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="next" element={<WhatNext />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

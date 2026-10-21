@@ -5,6 +5,9 @@ import { coverPalette } from '../lib/util'
 
 type Size = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 
+/** Covers in our own storage allow CORS, so their pixels can be read (ambient colour, the year card). Other hosts refuse. */
+export const corsReadable = (url: string) => url.includes('/storage/v1/object/public/')
+
 /**
  * Book cover. Falls back to a generated typographic cover so books without
  * artwork still look intentional rather than broken.
@@ -37,7 +40,7 @@ export function Cover({
           decoding="async"
           // Only request CORS where the host supports it (our own storage), so the
           // ambient-colour sampler can read pixels; other hosts would refuse the image.
-          crossOrigin={url.includes('/storage/v1/object/public/') ? 'anonymous' : undefined}
+          crossOrigin={corsReadable(url) ? 'anonymous' : undefined}
           onLoad={(e) => {
             const img = e.currentTarget
             // Open Library returns a 1×1 gif for unknown ISBNs.

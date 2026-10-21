@@ -408,3 +408,141 @@ test('refresh reloads the library and shows when', async ({ page }) => {
   await expect(page.locator('.settings-refresh')).toContainText(/Last refreshed Today, /)
   expect(errors).toEqual([])
 })
+
+test('library as spines on a shelf; a shareable year card', async ({ page }) => {
+  const errors = watchErrors(page)
+  await startOnDevice(page)
+  await page.goto('/#/settings')
+  await page.getByRole('button', { name: /sample library/ }).click()
+
+  // Spines: one shelf per pile on "All", sortable by colour, and each spine opens its book.
+  await openLibrary(page)
+  await page.getByRole('radio', { name: 'Spines on a shelf' }).click()
+  await expect(page.locator('.spine').first()).toBeVisible()
+  expect(await page.locator('.spine').count()).toBe(await page.locator('.spine-cell').count())
+  await expect(page.getByRole('heading', { name: /Want to read/ })).toBeVisible()
+  await page.getByRole('combobox', { name: 'Sort' }).selectOption('colour')
+  await page.locator('.spine').first().click()
+  await expect(page.locator('.book-title')).toBeVisible()
+
+  // Colour sorting only makes sense for spines, so other views put it back.
+  await openLibrary(page)
+  await page.getByRole('radio', { name: 'Grid' }).click()
+  await expect(page.getByRole('combobox', { name: 'Sort' })).toHaveValue('added')
+
+  // Year card: a picture you can download.
+  await page.goto('/#/stats')
+  await page.getByRole('button', { name: 'Share your year' }).click()
+  await expect(page.locator('.year-card-preview img')).toBeVisible()
+  const size = await page.locator('.year-card-preview img').evaluate((img: HTMLImageElement) => [img.naturalWidth, img.naturalHeight])
+  expect(size).toEqual([1080, 1350])
+  await page.getByRole('radio', { name: 'Light' }).click()
+  await expect(page.locator('.year-card-preview img')).toBeVisible()
+  const download = page.waitForEvent('download')
+  await page.getByRole('link', { name: 'Download image' }).click()
+  expect((await download).suggestedFilename()).toMatch(/^folio-\d{4}\.png$/)
+
+  expect(errors).toEqual([])
+})
+
+async function sampleLibrary(page: Page) {
+  await startOnDevice(page)
+  await page.goto('/#/settings')
+  await page.getByRole('button', { name: /sample library/ }).click()
+}
+
+test('log progress in one tap from Today', async ({ page }) => {
+  const errors = watchErrors(page)
+  await sampleLibrary(page)
+  await page.goto('/#/')
+  const card = page.locator('.now-card').first()
+  const before = await card.locator('.now-progress-row span').first().textContent()
+  await card.getByRole('button', { name: /^\+(10|15|5)/ }).first().click()
+  await expect(card.locator('.now-progress-row span').first()).not.toHaveText(before!)
+  // Undo puts it back.
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await expect(card.locator('.now-progress-row span').first()).toHaveText(before!)
+
+  // The sheet's −/+ buttons move the number, and Finished opens on the rating.
+  await card.getByRole('button', { name: 'Update…' }).click()
+  const field = page.locator('.prog-fields input').first()
+  const start = await field.inputValue()
+  await page.locator('.prog-nudge button').last().click()
+  await expect(field).not.toHaveValue(start)
+  await page.keyboard.press('Escape')
+  await card.getByRole('button', { name: 'Finished' }).click()
+  await expect(page.getByRole('button', { name: 'Mark as read' })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('what next? narrows want-to-read and starts a book', async ({ page }) => {
+  const errors = watchErrors(page)
+  await sampleLibrary(page)
+  await page.goto('/#/')
+  await page.getByRole('link', { name: 'Help me choose' }).click()
+  await expect(page.getByRole('heading', { name: /What next/ })).toBeVisible()
+  const count = () => page.locator('.next-card').count()
+  const all = await count()
+  expect(all).toBeGreaterThan(0)
+  await page.getByRole('radio', { name: 'Long haul' }).click()
+  expect(await count()).toBeLessThanOrEqual(all)
+  await page.getByRole('radio', { name: 'Any' }).first().click()
+  const first = page.locator('.next-card').first()
+  const title = await first.locator('.next-title').textContent()
+  await first.getByRole('button', { name: 'Start reading' }).click()
+  await expect(page.locator('.next-card', { hasText: title! }).locator('.next-started')).toBeVisible()
+  // Starting a book doesn't reshuffle the list.
+  await expect(page.locator('.next-card').first().locator('.next-title')).toHaveText(title!)
+  await openLibrary(page, '/reading')
+  await expect(page.locator('.tile-title', { hasText: title! })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('stats has a month-by-month reading diary', async ({ page }) => {
+  const errors = watchErrors(page)
+  await sampleLibrary(page)
+  await page.goto('/#/stats')
+  await expect(page.getByRole('heading', { name: 'Reading diary' })).toBeVisible()
+  expect(await page.locator('.diary-month').count()).toBeGreaterThan(0)
+  expect(await page.locator('.diary-day.l1, .diary-day.l2, .diary-day.l3, .diary-day.l4').count()).toBeGreaterThan(0)
+  expect(errors).toEqual([])
+})
+
+test('desktop: search everything, hover previews, drag onto a pile', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'keyboard, hover and drag are desktop features')
+  const errors = watchErrors(page)
+  await sampleLibrary(page)
+
+  // ⌘K / Ctrl K: find a book by author and open it.
+  await page.goto('/#/')
+  await page.keyboard.press('Control+k')
+  const box = page.getByRole('combobox', { name: 'Search Folio' })
+  await expect(box).toBeFocused()
+  await box.fill('ishiguro')
+  await expect(page.getByRole('option').first()).toContainText(/Remains|Klara|Never/)
+  await box.press('Enter')
+  await expect(page.locator('.book-title')).toHaveText(/Remains|Klara|Never/)
+  await page.getByRole('button', { name: 'Search' }).click()
+  await page.getByRole('combobox', { name: 'Search Folio' }).fill('stats')
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/#\/stats/)
+
+  // Hovering a want-to-read book offers to start it.
+  await openLibrary(page, '/want')
+  const wantBefore = await page.locator('.tile').count()
+  await page.locator('.tile-link').first().hover()
+  const card = page.locator('.preview-card')
+  await expect(card).toBeVisible()
+  await card.getByRole('button', { name: 'Start reading' }).click()
+  await expect(card).toBeHidden()
+  await expect(page.locator('.tile')).toHaveCount(wantBefore - 1)
+
+  // Drag a book onto the Paused pile.
+  await openLibrary(page, '/want')
+  const title = await page.locator('.tile-title').first().textContent()
+  await page.locator('.tile-link').first().dragTo(page.locator('.pile', { hasText: 'Paused' }))
+  await expect(page.getByText(/Moved 1 book to Paused/)).toBeVisible()
+  await openLibrary(page, '/paused')
+  await expect(page.locator('.tile-title', { hasText: title! })).toBeVisible()
+  expect(errors).toEqual([])
+})

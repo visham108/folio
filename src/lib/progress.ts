@@ -25,3 +25,10 @@ export function progressInfo(read: Read | undefined, ed?: Edition) {
         : `${100 - Math.round(value)}% left`
   return { unit, total, value, pct, label, left }
 }
+
+/** One-tap amounts, in whatever unit the book's progress is kept in. */
+export function quickSteps(unit: Unit): { by: number; label: string }[] {
+  if (unit === 'pages') return [{ by: 10, label: '+10 pages' }, { by: 25, label: '+25 pages' }]
+  if (unit === 'minutes') return [{ by: 15, label: '+15 min' }, { by: 30, label: '+30 min' }]
+  return [{ by: 5, label: '+5%' }, { by: 10, label: '+10%' }]
+}

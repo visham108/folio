@@ -14,7 +14,11 @@ type Mode = 'amount' | 'percent'
  * If the book has no page count (or length) yet, it's asked for once and saved to the edition,
  * so the percentage, and your stats, can be worked out from then on.
  */
-export function ProgressSheet({ read, open, onClose }: { read?: Read; open: boolean; onClose: () => void }) {
+export function ProgressSheet({ read, open, onClose, finishing: startFinished = false }: {
+  read?: Read; open: boolean; onClose: () => void
+  /** Open straight on "how was it?" (from a Finished button). */
+  finishing?: boolean
+}) {
   const store = useStore()
   const { editions, entries, works, logProgress, saveRead } = store
   const toast = useToast()
@@ -39,7 +43,7 @@ export function ProgressSheet({ read, open, onClose }: { read?: Read; open: bool
     setTotalText(knownTotal ? (audio ? fmtDuration(knownTotal) : String(knownTotal)) : '')
     setAmount(info.unit === 'percent' ? '' : audio ? fmtDuration(info.value) : String(Math.round(info.value)))
     setPctText(String(pct))
-    setFinishing(false)
+    setFinishing(startFinished)
     setRating(undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, read?.id])
@@ -65,6 +69,13 @@ export function ProgressSheet({ read, open, onClose }: { read?: Read; open: bool
     store.saveEdition(audio ? { ...ed, durationMin: Math.round(t) } : { ...ed, pages: Math.round(t) })
     saveRead({ ...read, progress: Math.round(before * t) })
     return true
+  }
+
+  /** The −10 / +10 buttons: move from what's typed (or where you were), never below zero or past the end. */
+  const nudge = (n: number) => {
+    const from = amountOk ? done! : info.unit === 'percent' ? 0 : info.value
+    const next = Math.max(0, Math.min(totalOk ? total! : Infinity, Math.round(from + n)))
+    setAmount(audio ? fmtDuration(next) : String(next))
   }
 
   const save = () => {
@@ -125,6 +136,16 @@ export function ProgressSheet({ read, open, onClose }: { read?: Read; open: bool
             </div>
           )}
 
+          {mode === 'amount' && (
+            <div className="prog-nudge" role="group" aria-label={audio ? 'Adjust time listened' : 'Adjust page'}>
+              {(audio ? [-15, -5, 5, 15] : [-10, -1, 1, 10]).map((n) => (
+                <button key={n} type="button" className="btn btn-ghost sm" onClick={() => nudge(n)}
+                  aria-label={`${n > 0 ? 'Forward' : 'Back'} ${Math.abs(n)} ${audio ? 'minutes' : n === 1 || n === -1 ? 'page' : 'pages'}`}>
+                  {n > 0 ? '+' : '−'}{Math.abs(n)}{audio ? 'm' : ''}
+                </button>
+              ))}
+            </div>
+          )}
           {mode === 'amount' && !knownTotal && (
             <p className="muted small">This book has no {audio ? 'length' : 'page count'} yet. Enter the total once and Folio remembers it for the percentage and your stats.</p>
           )}

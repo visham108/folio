@@ -1,9 +1,11 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { BarChart3, BookOpen, Home, Library, Plus, Settings } from 'lucide-react'
-import { Suspense } from 'react'
+import { BarChart3, BookOpen, Home, Library, Plus, Search, Settings } from 'lucide-react'
+import { Suspense, useCallback, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate, useOutlet } from 'react-router-dom'
 import { useStore } from '../state/store'
 import { RefreshControl } from './Refresh'
+import { BookPreviewProvider } from './BookPreview'
+import { CommandPalette, PALETTE_KEYS, usePaletteShortcut } from './CommandPalette'
 import { Ring } from './ui'
 import { useYearProgress } from '../pages/hooks'
 
@@ -20,7 +22,10 @@ export function Shell() {
   const nav = useNavigate()
   const { backend } = useStore()
   const yp = useYearProgress()
+  const [palette, setPalette] = useState(false)
+  usePaletteShortcut(useCallback(() => setPalette((p) => !p), []))
   return (
+    <BookPreviewProvider>
     <div className="shell">
       <a className="skip-link" href="#main-content" onClick={(e) => { e.preventDefault(); document.getElementById('main-content')?.focus() }}>
         Skip to content
@@ -36,6 +41,9 @@ export function Shell() {
             </NavLink>
           ))}
         </nav>
+        <button className="side-search" onClick={() => setPalette(true)}>
+          <Search size={16} /> <span>Search</span> <kbd>{PALETTE_KEYS}</kbd>
+        </button>
         <button className="btn btn-primary add-btn" onClick={() => nav('/add')}>
           <Plus size={18} /> Add a book
         </button>
@@ -74,6 +82,8 @@ export function Shell() {
           <NavLink key={n.to} to={n.to} className="tab"><n.icon size={22} strokeWidth={1.8} /><span>{n.label}</span></NavLink>
         ))}
       </nav>
+      <CommandPalette open={palette} onClose={() => setPalette(false)} />
     </div>
+    </BookPreviewProvider>
   )
 }
