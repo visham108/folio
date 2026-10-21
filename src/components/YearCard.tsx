@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { moodProfile, type Completion, type YearSummary } from '../lib/stats'
 import { coverPalette, fmtNumber, monthName, plural } from '../lib/util'
 import { useToast } from '../state/toast'
+import { corsReadable } from './Cover'
 import { Segmented, Sheet } from './ui'
 
 type Theme = 'ink' | 'paper'
@@ -239,9 +240,9 @@ function drawCover(ctx: CanvasRenderingContext2D, it: Completion, img: HTMLImage
   ctx.restore()
 }
 
-/** Loads a cover the canvas may copy from. Hosts that don't allow it get the generated cover. */
+/** Loads a cover the canvas may copy from. Hosts that don't allow it (Open Library, Google Books) get the generated cover. */
 function loadCover(url?: string): Promise<HTMLImageElement | null> {
-  if (!url) return Promise.resolve(null)
+  if (!url || !corsReadable(url)) return Promise.resolve(null)
   return new Promise((resolve) => {
     const img = new Image()
     const done = (v: HTMLImageElement | null) => { clearTimeout(timer); resolve(v) }
