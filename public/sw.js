@@ -1,8 +1,9 @@
 // Folio service worker: lets the site open without a connection.
 // Pages are network-first (you always get the latest version when online);
-// the app's hashed files and fonts are cache-first. Book data is not handled
+// the app's hashed files and fonts are cache-first; version.json ("is there a newer
+// Folio?") always goes to the network. Book data is not handled
 // here: the app keeps its own offline copy and syncs changes itself.
-const CACHE = 'folio-shell-v2'
+const CACHE = 'folio-shell-v3'
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg']
 
 self.addEventListener('install', (event) => {
@@ -40,6 +41,7 @@ self.addEventListener('fetch', (event) => {
   const sameOrigin = url.origin === self.location.origin
   const isFont = url.host === 'fonts.googleapis.com' || url.host === 'fonts.gstatic.com'
   if (!sameOrigin && !isFont) return // database, book search, covers: straight to the network
+  if (sameOrigin && url.pathname.endsWith('/version.json')) return
 
   if (req.mode === 'navigate') {
     // Only the app itself is kept for offline use; other pages (e.g. privacy.html) aren't.
@@ -47,7 +49,8 @@ self.addEventListener('fetch', (event) => {
     const isApp = url.pathname === scope || url.pathname === scope + 'index.html'
     event.respondWith((async () => {
       try {
-        const fresh = await fetch(req)
+        // Revalidate rather than take the browser's cached copy, so a reload after a deploy gets the new version.
+        const fresh = await fetch(req, { cache: 'no-cache' })
         if (isApp && fresh.ok) event.waitUntil(keepLatest(fresh.clone()))
         return fresh
       } catch {
