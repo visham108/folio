@@ -1268,3 +1268,14 @@ kbd { display: inline-flex; align-items: center; min-width: 20px; height: 20px; 
 .merge-eds .merge-mine { margin-left: 8px; }
 .merge-head { font: 600 0.78rem var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 4px 0 6px; }
 @media (max-width: 640px) { .merge-table tbody th { white-space: normal; } }
+
+/* Library sort: the field, plus which way round. */
+.sort-ctl { display: flex; align-items: center; gap: 4px; }
+.sort-dir { white-space: nowrap; }
+@media (max-width: 640px) { .sort-dir span { display: none; } }
+/* Headings when sorted by series or author. */
+.lib-groups { display: flex; flex-direction: column; gap: 28px; }
+.lib-group-head, .tgroup { font: 500 1.15rem var(--serif); letter-spacing: -0.01em; margin: 0 0 12px; display: flex; align-items: baseline; gap: 8px; }
+.tgroup { font-size: 1rem; margin: 0; padding: 14px 16px 6px; border-bottom: 1px solid var(--line); }
+.group-link { color: var(--ink); }
+.group-link:hover { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }

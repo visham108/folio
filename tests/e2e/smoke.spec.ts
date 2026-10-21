@@ -564,3 +564,35 @@ test('offers to reload when a newer version has been deployed', async ({ page })
   await expect(notice).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('library sorts every which way, remembers it, and heads each series', async ({ page }) => {
+  const errors = watchErrors(page)
+  await startOnDevice(page)
+  await page.goto('/#/settings')
+  await page.getByRole('button', { name: /sample library/ }).click()
+  await openLibrary(page)
+  await page.getByRole('radio', { name: 'Grid' }).click()
+  const sortBox = page.getByRole('combobox', { name: 'Sort' })
+
+  // Title, A to Z, then reversed.
+  await sortBox.selectOption('title')
+  const first = await page.locator('.tile-title').first().textContent()
+  await page.getByRole('button', { name: /^Order: A → Z\. Reverse$/ }).click()
+  await expect(page.getByRole('button', { name: /^Order: Z → A\. Reverse$/ })).toBeVisible()
+  expect(await page.locator('.tile-title').first().textContent()).not.toBe(first)
+
+  // Series: a heading per series, volumes in order; the choice survives a reload.
+  await sortBox.selectOption('series')
+  const dune = page.locator('.lib-group', { has: page.getByRole('link', { name: 'Dune', exact: true }) })
+  await expect(dune.locator('.tile-title')).toHaveText(['Dune', 'Dune Messiah'])
+  await expect(page.locator('.lib-group-head').last()).toContainText('Not in a series')
+  await page.reload()
+  await expect(page.getByRole('combobox', { name: 'Sort' })).toHaveValue('series')
+  await page.getByRole('radio', { name: 'List' }).click()
+  await expect(page.locator('.tgroup').first()).toBeVisible()
+
+  for (const s of ['activity', 'genre', 'format', 'pile', 'started', 'published', 'progress', 'timesRead', 'publisher', 'length', 'rating', 'author', 'finished', 'added']) {
+    await page.getByRole('combobox', { name: 'Sort' }).selectOption(s)
+  }
+  expect(errors).toEqual([])
+})

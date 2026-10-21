@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { CheckSquare, Grid2x2, LibraryBig, List, Pencil, Plus, Search, Shuffle, Sparkles, Table2, Trash2, X } from 'lucide-react'
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckSquare, Grid2x2, LibraryBig, List, Pencil, Plus, Search, Shuffle, Sparkles, Table2, Trash2, X } from 'lucide-react'
 import { titleCase } from '../lib/titleCase'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { BookTile } from '../components/BookTile'
 import { BulkEditSheet } from '../components/BulkEdit'
@@ -11,25 +11,19 @@ import { SpineShelf, spineHue } from '../components/SpineShelf'
 import { Cover } from '../components/Cover'
 import { ConfirmSheet, Empty, Segmented, Sheet, Stars } from '../components/ui'
 import { fold } from '../lib/match'
-import { STATUSES, mediumOf, type Entry, type Shelf } from '../lib/types'
+import { compareKeys, sortDef, SORTS, surnameKey, titleKey, type SortId, type SortKey } from '../lib/librarySort'
+import { progressInfo } from '../lib/progress'
+import { seriesSlug } from '../lib/series'
+import { FORMATS, STATUSES, mediumOf, type Entry, type Shelf } from '../lib/types'
 import { fmtDate, fmtDuration, plural, uid } from '../lib/util'
 import { useStore } from '../state/store'
 import { useToast } from '../state/toast'
 import { findSmart, nextInSeriesIds, SMART_SHELVES, smartId } from '../lib/smartShelves'
 import { useSeries } from './hooks'
 
-type Sort = 'added' | 'title' | 'author' | 'rating' | 'finished' | 'length' | 'colour'
-const SORTS: { id: Sort; label: string }[] = [
-  { id: 'added', label: 'Recently added' },
-  { id: 'finished', label: 'Date read' },
-  { id: 'title', label: 'Title' },
-  { id: 'author', label: 'Author' },
-  { id: 'rating', label: 'Rating' },
-  { id: 'length', label: 'Length' },
-  // Spines only: the generated cover colours, which the grid and lists don't show.
-  { id: 'colour', label: 'Colour' },
-]
-
+const SORT_KEY = 'folio.librarySort'
+const FORMAT_ORDER: string[] = ['hardcover', 'paperback', 'ebook', 'audiobook', 'other']
+const PILE_ORDER: string[] = ['reading', 'paused', 'want', 'read', 'dnf']
 const VIEW_KEY = 'folio.libraryView'
 
 export function Library() {
@@ -38,7 +32,16 @@ export function Library() {
   const store = useStore()
   const { data, works, readsByEntry } = store
   const [q, setQ] = useState('')
-  const [sort, setSort] = useState<Sort>('added')
+  // Your sort is remembered: { id, dir }.
+  const [sortPref, setSortPref] = useState<{ id: SortId; dir: 1 | -1 }>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(SORT_KEY) ?? 'null')
+      if (v && SORTS.some((s) => s.id === v.id) && (v.dir === 1 || v.dir === -1)) return v
+    } catch { /* storage blocked */ }
+    return { id: 'added', dir: -1 }
+  })
+  const saveSort = (v: { id: SortId; dir: 1 | -1 }) => { setSortPref(v); try { localStorage.setItem(SORT_KEY, JSON.stringify(v)) } catch { /* private mode */ } }
+  const setSort = (id: SortId) => saveSort({ id, dir: sortDef(id).dir })
   const [format, setFormat] = useState<'all' | 'print' | 'ebook' | 'audio'>('all')
   type View = 'grid' | 'list' | 'table' | 'shelf'
   const [view, setViewState] = useState<View>(() => {
@@ -46,9 +49,14 @@ export function Library() {
   })
   const setView = (v: View) => {
     setViewState(v)
-    if (v !== 'shelf' && sort === 'colour') setSort('added')
+    if (v !== 'shelf' && sortPref.id === 'colour') setSort('added')
     try { localStorage.setItem(VIEW_KEY, v) } catch { /* private mode */ }
   }
+  // Colour only means something on the spines.
+  const sort: SortId = sortPref.id === 'colour' && view !== 'shelf' ? 'added' : sortPref.id
+  const dir = sort === sortPref.id ? sortPref.dir : sortDef(sort).dir
+  const def = sortDef(sort)
+
   // The shelf being created ('new') or renamed.
   const [shelfEdit, setShelfEdit] = useState<Shelf | 'new' | null>(null)
   const [shelfName, setShelfName] = useState('')
@@ -161,18 +169,68 @@ export function Library() {
       const ed = store.editionOf(e)
       return ed?.pages ?? (ed?.durationMin ? (ed.durationMin / 60) * data.settings.audioPagesPerHour : 0)
     }
-    const cmp: Record<Sort, (a: Entry, b: Entry) => number> = {
-      added: (a, b) => b.addedAt.localeCompare(a.addedAt),
-      title: (a, b) => w(a).title.localeCompare(w(b).title),
-      author: (a, b) => surnameKey(w(a).authors[0]).localeCompare(surnameKey(w(b).authors[0])),
-      rating: (a, b) => (b.rating ?? 0) - (a.rating ?? 0),
-      finished: (a, b) => lastFinished(b).localeCompare(lastFinished(a)),
-      length: (a, b) => len(b) - len(a),
-      colour: (a, b) => spineHue(w(a).title, w(a).authors[0]) - spineHue(w(b).title, w(b).authors[0]) || len(b) - len(a),
+    const reads = (e: Entry) => readsByEntry.get(e.id) ?? []
+    const logDays = new Map<string, string[]>()
+    if (sort === 'activity') for (const l of data.logs) logDays.set(l.readId, [...(logDays.get(l.readId) ?? []), l.on])
+    const latest = (xs: (string | undefined)[]) => xs.filter(Boolean).sort().pop()
+    const keyOf: Record<SortId, (e: Entry) => SortKey> = {
+      added: (e) => [e.addedAt],
+      activity: (e) => {
+        const rs = reads(e)
+        const d = latest([...rs.flatMap((r) => [r.startedOn, r.finishedOn]), ...rs.flatMap((r) => logDays.get(r.id) ?? [])])
+        return d ? [d] : undefined
+      },
+      genre: (e) => (w(e).genres[0] ? [fold(w(e).genres[0]), titleKey(w(e).title)] : undefined),
+      format: (e) => { const f = store.editionOf(e)?.format; return f ? [FORMAT_ORDER.indexOf(f), titleKey(w(e).title)] : undefined },
+      pile: (e) => [PILE_ORDER.indexOf(e.status), titleKey(w(e).title)],
+      finished: (e) => { const d = lastFinished(e); return d ? [d] : undefined },
+      started: (e) => { const d = latest(reads(e).map((r) => r.startedOn)); return d ? [d] : undefined },
+      title: (e) => [titleKey(w(e).title), fold(w(e).subtitle ?? '')],
+      author: (e) => (w(e).authors[0] ? [surnameKey(w(e).authors[0]), titleKey(w(e).title)] : undefined),
+      series: (e) => (w(e).series ? [fold(w(e).series!), w(e).seriesIndex ?? Number.MAX_SAFE_INTEGER, titleKey(w(e).title)] : undefined),
+      rating: (e) => (e.rating ? [e.rating] : undefined),
+      length: (e) => (len(e) ? [len(e)] : undefined),
+      published: (e) => (w(e).firstPublished != null ? [w(e).firstPublished!] : undefined),
+      progress: (e) => {
+        const r = reads(e).find((x) => x.state === 'reading' || x.state === 'paused')
+        if (!r) return undefined
+        return [progressInfo(r, store.editions.get(r.editionId ?? '') ?? store.editionOf(e)).pct]
+      },
+      timesRead: (e) => { const n = reads(e).filter((r) => r.state === 'finished').length; return n ? [n] : undefined },
+      publisher: (e) => { const p = store.editionOf(e)?.publisher; return p ? [fold(p), titleKey(w(e).title)] : undefined },
+      colour: (e) => [spineHue(w(e).title, w(e).authors[0]), -len(e)],
     }
-    return xs.filter((e) => works.has(e.workId)).sort(cmp[sort])
+    const keys = new Map(xs.map((e) => [e.id, works.has(e.workId) ? keyOf[sort](e) : undefined]))
+    // Ties (and books with no value, which always go last) fall back to the title.
+    const cmp = (a: Entry, b: Entry) => compareKeys(keys.get(a.id), keys.get(b.id), dir) || compareKeys([titleKey(w(a).title)], [titleKey(w(b).title)], 1)
+    return xs.filter((e) => works.has(e.workId)).sort(cmp)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.entries, pile, shelf, smart, smartMembers, q, sort, format, works, readsByEntry, data.settings.audioPagesPerHour])
+  }, [data.entries, data.logs, pile, shelf, smart, smartMembers, q, sort, dir, format, works, readsByEntry, data.settings.audioPagesPerHour])
+
+  // Sorting by series or author: a heading over each run of books.
+  const groups = useMemo(() => {
+    if (!def.grouped) return null
+    const label = (e: Entry) => {
+      const w = works.get(e.workId)!
+      switch (sort) {
+        case 'series': return w.series ?? ''
+        case 'genre': return w.genres[0] ?? ''
+        case 'format': return FORMATS.find((f) => f.id === store.editionOf(e)?.format)?.label ?? ''
+        case 'pile': return STATUSES.find((s) => s.id === e.status)?.label ?? ''
+        default: return w.authors[0] ?? ''
+      }
+    }
+    const out: { label: string; items: Entry[] }[] = []
+    for (const e of list) {
+      const l = label(e)
+      if (out.length && out[out.length - 1].label === l) out[out.length - 1].items.push(e)
+      else out.push({ label: l, items: [e] })
+    }
+    return out
+  }, [list, def.grouped, sort, works])
+  const groupTitle = (label: string) =>
+    !label ? ({ series: 'Not in a series', genre: 'No genre', format: 'No edition', author: 'No author' } as Record<string, string>)[sort] ?? '—'
+      : sort === 'series' ? <Link to={`/series/${seriesSlug(label)}`} className="group-link">{label}</Link> : label
 
   // Selected books that are still in view (a search or pile change narrows what "all" means).
   const visibleSelected = list.filter((e) => selected.has(e.id))
@@ -266,9 +324,15 @@ export function Library() {
           <option value="ebook">Ebook</option>
           <option value="audio">Audio</option>
         </select>
-        <select className="select" value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort">
-          {SORTS.filter((s) => s.id !== 'colour' || view === 'shelf').map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-        </select>
+        <div className="sort-ctl">
+          <select className="select" value={sort} onChange={(e) => setSort(e.target.value as SortId)} aria-label="Sort">
+            {SORTS.filter((s) => s.id !== 'colour' || view === 'shelf').map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+          <button className="btn btn-ghost sm sort-dir" onClick={() => saveSort({ id: sort, dir: dir === 1 ? -1 : 1 })}
+            aria-label={`Order: ${def.orders[dir === 1 ? 0 : 1]}. Reverse`} title="Reverse the order">
+            {dir === 1 ? <ArrowUpNarrowWide size={15} /> : <ArrowDownWideNarrow size={15} />} <span>{def.orders[dir === 1 ? 0 : 1]}</span>
+          </button>
+        </div>
         {view !== 'table' && <button className={`btn btn-ghost sm ${selecting ? 'on' : ''}`} aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
           <CheckSquare size={15} /> {selecting ? 'Done' : 'Select'}
         </button>}
@@ -297,11 +361,24 @@ export function Library() {
       ) : view === 'shelf' ? (
         <SpineShelf entries={list} grouped={pile === 'all'} selecting={selecting} selected={selected} onToggle={toggle} />
       ) : view === 'grid' ? (
-        <div className="grid">
-          <AnimatePresence initial={false}>
-            {list.map((e, i) => <BookTile key={e.id} entry={e} index={i} selecting={selecting} selected={selected.has(e.id)} onToggle={() => toggle(e.id)} />)}
-          </AnimatePresence>
-        </div>
+        groups ? (
+          <div className="lib-groups">
+            {groups.map((g) => (
+              <section key={g.label || '—'} className="lib-group" aria-label={g.label || undefined}>
+                <h3 className="lib-group-head">{groupTitle(g.label)} <span className="count">{g.items.length}</span></h3>
+                <div className="grid">
+                  {g.items.map((e) => <BookTile key={e.id} entry={e} index={list.indexOf(e)} selecting={selecting} selected={selected.has(e.id)} onToggle={() => toggle(e.id)} />)}
+                </div>
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className="grid">
+            <AnimatePresence initial={false}>
+              {list.map((e, i) => <BookTile key={e.id} entry={e} index={i} selecting={selecting} selected={selected.has(e.id)} onToggle={() => toggle(e.id)} />)}
+            </AnimatePresence>
+          </div>
+        )
       ) : (
         <div className="table card">
           <div className="trow thead" aria-hidden>
@@ -315,9 +392,12 @@ export function Library() {
           {list.map((e) => {
             const w = works.get(e.workId)!
             const ed = store.editionOf(e)
+            const g = groups?.find((x) => x.items[0] === e)
             const reads = (readsByEntry.get(e.id) ?? []).filter((r) => r.state === 'finished').length
             return (
-              <Link key={e.id} to={`/book/${w.id}`} className={`trow ${selecting && selected.has(e.id) ? 'selected' : ''}`}
+              <Fragment key={e.id}>
+              {g && <div className="tgroup" role="heading" aria-level={3}>{groupTitle(g.label)} <span className="count">{g.items.length}</span></div>}
+              <Link to={`/book/${w.id}`} className={`trow ${selecting && selected.has(e.id) ? 'selected' : ''}`}
                 role={selecting ? 'checkbox' : undefined} aria-checked={selecting ? selected.has(e.id) : undefined}
                 onClick={selecting ? (ev) => { ev.preventDefault(); toggle(e.id) } : undefined}>
                 {selecting ? <span className={`row-check ${selected.has(e.id) ? 'on' : ''}`} aria-hidden /> : <Cover work={w} edition={ed} size="xs" />}
@@ -330,6 +410,7 @@ export function Library() {
                 <span className="trow-cell hide-mobile muted">{fmtDate(lastFinished(e))}</span>
                 <span className="trow-cell">{e.rating ? <Stars value={e.rating} size={12} /> : null}</span>
               </Link>
+              </Fragment>
             )
           })}
         </div>
@@ -398,17 +479,6 @@ export function Library() {
       </ConfirmSheet>
     </div>
   )
-}
-
-// Sort by surname, keeping particles ("Le Guin", "van der Berg") and skipping suffixes ("Jr.", "III").
-const SUFFIX = /^(jr|sr|ii|iii|iv|phd|md)\.?$/i
-const PARTICLE = /^(le|la|de|del|della|di|da|du|des|van|von|der|den|ten|ter|bin|al|el|st\.?)$/i
-function surnameKey(name = ''): string {
-  const parts = name.replace(/,/g, ' ').split(/\s+/).filter(Boolean)
-  while (parts.length > 1 && SUFFIX.test(parts[parts.length - 1])) parts.pop()
-  let i = parts.length - 1
-  while (i > 1 && PARTICLE.test(parts[i - 1])) i--
-  return fold(parts.slice(i).join(' ') + ' ' + parts.slice(0, i).join(' '))
 }
 
 function emptyCopy(pile: string, isShelf: boolean, isSmart: boolean): string {
