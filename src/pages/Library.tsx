@@ -24,7 +24,8 @@ import { useSeries } from './hooks'
 const SORT_KEY = 'folio.librarySort'
 const FORMAT_ORDER: string[] = ['hardcover', 'paperback', 'ebook', 'audiobook', 'other']
 const PILE_ORDER: string[] = ['reading', 'paused', 'want', 'read', 'dnf']
-const VIEW_KEY = 'folio.libraryView'
+// Renamed when spines became the default, so everyone starts there once; after that your choice is kept.
+const VIEW_KEY = 'folio.libraryView.v2'
 
 export function Library() {
   const { pile = 'all' } = useParams()
@@ -45,7 +46,7 @@ export function Library() {
   const [format, setFormat] = useState<'all' | 'print' | 'ebook' | 'audio'>('all')
   type View = 'grid' | 'list' | 'table' | 'shelf'
   const [view, setViewState] = useState<View>(() => {
-    try { return (localStorage.getItem(VIEW_KEY) as View) || 'grid' } catch { return 'grid' }
+    try { return (localStorage.getItem(VIEW_KEY) as View) || 'shelf' } catch { return 'shelf' }
   })
   const setView = (v: View) => {
     setViewState(v)
@@ -342,10 +343,10 @@ export function Library() {
           value={view}
           onChange={setView}
           options={[
+            { id: 'shelf', label: <LibraryBig size={15} aria-label="Spines on a shelf" /> },
             { id: 'grid', label: <Grid2x2 size={15} aria-label="Grid" /> },
             { id: 'list', label: <List size={15} aria-label="List" /> },
             { id: 'table', label: <Table2 size={15} aria-label="Table of every detail" /> },
-            { id: 'shelf', label: <LibraryBig size={15} aria-label="Spines on a shelf" /> },
           ]}
         />
       </div>

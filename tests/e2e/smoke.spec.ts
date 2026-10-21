@@ -3,6 +3,13 @@ import { fileURLToPath } from 'node:url'
 
 const fixture = (name: string) => fileURLToPath(new URL(`../fixtures/${name}`, import.meta.url))
 
+// The Library opens on spines; most tests here work with the cover grid, so start them there
+// (only if no view has been chosen, so switching views within a test still sticks).
+test.beforeEach(async ({ page }, info) => {
+  if (info.title.includes('spines by default')) return
+  await page.addInitScript(() => { try { if (!localStorage.getItem('folio.libraryView.v2')) localStorage.setItem('folio.libraryView.v2', 'grid') } catch { /* blocked */ } })
+})
+
 // Errors from the app itself fail the test; blocked third-party images and fonts don't.
 function watchErrors(page: Page) {
   const errors: string[] = []
@@ -594,5 +601,22 @@ test('library sorts every which way, remembers it, and heads each series', async
   for (const s of ['activity', 'genre', 'format', 'pile', 'started', 'published', 'progress', 'timesRead', 'publisher', 'length', 'rating', 'author', 'finished', 'added']) {
     await page.getByRole('combobox', { name: 'Sort' }).selectOption(s)
   }
+  expect(errors).toEqual([])
+})
+
+test('the library opens on spines by default, first in the view picker', async ({ page }) => {
+  const errors = watchErrors(page)
+  await startOnDevice(page)
+  await page.goto('/#/settings')
+  await page.getByRole('button', { name: /sample library/ }).click()
+  await openLibrary(page)
+  await expect(page.locator('.spine-shelf').first()).toBeVisible()
+  const views = page.getByRole('radiogroup', { name: 'View' }).getByRole('radio')
+  await expect(views.first()).toHaveAccessibleName('Spines on a shelf')
+  await expect(views.first()).toBeChecked()
+  // Another view, once chosen, is remembered.
+  await page.getByRole('radio', { name: 'Grid' }).click()
+  await page.reload()
+  await expect(page.getByRole('radio', { name: 'Grid' })).toBeChecked()
   expect(errors).toEqual([])
 })
