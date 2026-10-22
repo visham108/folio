@@ -267,15 +267,15 @@ const localDayOfYear = (now = new Date()) => (todayStart(now) - Date.UTC(now.get
  * Shared by Today and Stats so both say the same thing: `ahead` is a whole
  * number of books (negative when behind) and `text` is ready to show.
  */
-export function goalPace(done: number, goal: number, year: number, now = new Date()) {
+export function goalPace(done: number, goal: number, year: number, now = new Date(), unit = 'book') {
   const days = daysIn(year)
   const cur = now.getFullYear()
   const elapsed = cur === year ? localDayOfYear(now) + 1 : cur > year ? days : 0
   const expected = goal > 0 ? (goal * elapsed) / days : 0
   const ahead = Math.round(done - expected)
   const text = goal > 0 && done >= goal ? 'Goal reached ✦'
-    : ahead > 0 ? `${plural(ahead, 'book')} ahead of pace`
-      : ahead < 0 ? `${plural(-ahead, 'book')} behind pace`
+    : ahead > 0 ? `${plural(ahead, unit)} ahead of pace`
+      : ahead < 0 ? `${plural(-ahead, unit)} behind pace`
         : 'Right on pace'
   return { expected, ahead, text }
 }

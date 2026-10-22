@@ -7,7 +7,7 @@ import { sampleLibrary } from '../lib/sample'
 import { downloadBackup, lastBackup } from '../lib/backup'
 import { downloadText, fullCsv, goodreadsCsv } from '../lib/exporter'
 import { fmtDate, localIso, plural, today } from '../lib/util'
-import { goalFor, withGoal, type Settings, type Snapshot } from '../lib/types'
+import { DEFAULT_PAGE_GOAL, goalFor, pageGoalFor, withGoal, withPageGoal, type Settings, type Snapshot } from '../lib/types'
 import { useStore } from '../state/store'
 import { RefreshControl } from '../components/Refresh'
 import { FillLengthsButton, useMissingLengths } from '../components/FillLengths'
@@ -23,6 +23,7 @@ export function SettingsPage() {
   const missingLengths = useMissingLengths()
   const thisYear = new Date().getFullYear()
   const [goal, setGoal] = useState(String(goalFor(s, thisYear) ?? ''))
+  const [pageGoal, setPageGoal] = useState(String(pageGoalFor(s, thisYear) ?? ''))
   const [importOpen, setImportOpen] = useState(false)
   const [last, setLast] = useState(lastBackup())
   const [confirmWipe, setConfirmWipe] = useState(false)
@@ -70,7 +71,7 @@ export function SettingsPage() {
             e.target.value = nameCase(e.target.value)
             store.saveSettings({ displayName: e.target.value || undefined })
           }} placeholder="What should we call you?" /></Field>
-          <Field label={`Reading goal for ${thisYear}`} hint="Every year starts at 12. Set goals for other years from Stats.">
+          <Field label={`Book goal for ${thisYear}`} hint="Every year starts at 12. Set goals for other years from Stats.">
             <input className="input" inputMode="numeric" value={goal} placeholder="No goal" onChange={(e) => setGoal(e.target.value)} onBlur={() => {
               const n = parseInt(goal, 10)
               if (n > 0 && n < 1000) store.saveSettings(withGoal(s, thisYear, n))
@@ -78,7 +79,15 @@ export function SettingsPage() {
               else setGoal(String(goalFor(s, thisYear) ?? ''))
             }} />
           </Field>
-          <Field label="An hour of listening counts as" hint="Used for “combined” stats. Around 30 pages an hour at a typical narration pace." className="span-2">
+          <Field label={`Page goal for ${thisYear}`} hint={`Every year starts at ${DEFAULT_PAGE_GOAL.toLocaleString()}. Listening counts, converted below.`}>
+            <input className="input" inputMode="numeric" value={pageGoal} placeholder="No goal" onChange={(e) => setPageGoal(e.target.value.replace(/\D/g, ''))} onBlur={() => {
+              const n = parseInt(pageGoal, 10)
+              if (n > 0 && n < 1_000_000) store.saveSettings(withPageGoal(s, thisYear, n))
+              else if (!pageGoal.trim()) store.saveSettings(withPageGoal(s, thisYear, 0))
+              else setPageGoal(String(pageGoalFor(s, thisYear) ?? ''))
+            }} />
+          </Field>
+          <Field label="An hour of listening counts as" hint="Used for the page goal and “combined” stats. 20 pages an hour is a page every three minutes." className="span-2">
             <div className="inline-num">
               <input type="range" className="range" min={10} max={60} step={1} value={s.audioPagesPerHour} style={{ ['--pct' as string]: `${((s.audioPagesPerHour - 10) / 50) * 100}%` }}
                 onChange={(e) => store.saveSettings({ audioPagesPerHour: +e.target.value })} aria-label="Pages per hour of audio" />

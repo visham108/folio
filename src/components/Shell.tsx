@@ -6,6 +6,7 @@ import { useStore } from '../state/store'
 import { RefreshControl } from './Refresh'
 import { BookPreviewProvider } from './BookPreview'
 import { CommandPalette, PALETTE_KEYS, usePaletteShortcut } from './CommandPalette'
+import { compact } from '../lib/util'
 import { Ring } from './ui'
 import { useYearProgress } from '../pages/hooks'
 
@@ -47,11 +48,15 @@ export function Shell() {
         <button className="btn btn-primary add-btn" onClick={() => nav('/add')}>
           <Plus size={18} /> Add a book
         </button>
-        <Link className="side-goal" to="/stats">
-          <Ring pct={yp.pct} size={52} stroke={5}><span className="ring-mini">{yp.done}</span></Ring>
-          <div>
-            <div className="side-goal-t">{yp.year} goal</div>
-            <div className="muted small">{yp.goal ? `${yp.done} of ${yp.goal} books` : `${yp.done} ${yp.done === 1 ? 'book' : 'books'} read`}</div>
+        <Link className="side-goal side-goals" to="/stats" aria-label={`${yp.year} goals: ${yp.done}${yp.goal ? ` of ${yp.goal}` : ''} books, ${yp.pages.done.toLocaleString()}${yp.pages.goal ? ` of ${yp.pages.goal.toLocaleString()}` : ''} pages`}>
+          <div className="side-goal-t">{yp.year} goals</div>
+          <div className="side-goal-row">
+            <Ring pct={yp.pct} size={38} stroke={4}><span className="ring-mini">{yp.done}</span></Ring>
+            <span className="muted small">{yp.goal ? `${yp.done} of ${yp.goal} books` : `${yp.done} ${yp.done === 1 ? 'book' : 'books'}`}</span>
+          </div>
+          <div className="side-goal-row">
+            <Ring pct={yp.pages.pct} size={38} stroke={4}><span className="ring-mini xs">{Math.round(Math.min(1, yp.pages.pct) * 100)}%</span></Ring>
+            <span className="muted small">{yp.pages.goal ? `${compact(yp.pages.done)} of ${compact(yp.pages.goal)} pages` : `${compact(yp.pages.done)} pages`}</span>
           </div>
         </Link>
         <RefreshControl className="side-refresh" />

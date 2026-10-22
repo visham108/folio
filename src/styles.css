@@ -1280,3 +1280,17 @@ kbd { display: inline-flex; align-items: center; min-width: 20px; height: 20px; 
 .group-link { color: var(--ink); }
 .group-link:hover { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
 .hero-note { margin: -4px 0 10px; }
+
+/* Today: book and page goals together. */
+.goal-dual { flex-direction: column; align-items: stretch; gap: 14px; padding: 20px 24px; }
+.goal-row { display: flex; align-items: center; gap: 18px; }
+.ring-num.sm { font-size: 1.15rem; }
+.goal-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+@media (max-width: 480px) { .goal-fields { grid-template-columns: 1fr; } }
+.side-goals { flex-direction: column; align-items: stretch; gap: 6px; }
+.side-goal-row { display: flex; align-items: center; gap: 10px; }
+.ring-mini.xs { font-size: 0.62rem; font-family: var(--sans); font-weight: 600; }
+.stat-hero-goals { display: grid; grid-template-columns: auto auto; gap: 8px 22px; justify-items: center; align-content: center; }
+.stat-hero-goals .stat-hero-goal { gap: 6px; }
+.goals-change { grid-column: 1 / -1; }
+@media (max-width: 640px) { .stat-hero-goals .stat-hero-goal { flex-direction: column; } }

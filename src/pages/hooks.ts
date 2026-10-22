@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { buildSeries, type Series } from '../lib/series'
-import { goalFor, type Work } from '../lib/types'
-import { completions, readingSlices, type Completion, goalPace, type Slice } from '../lib/stats'
+import { goalFor, pageGoalFor, type Work } from '../lib/types'
+import { completions, readingSlices, type Completion, goalPace, pageEquivalent, type Slice } from '../lib/stats'
 import { useStore } from '../state/store'
 
 export function useCompletions(includeDnf = false): Completion[] {
@@ -29,7 +29,19 @@ export function useYearProgress() {
   const goal = goalFor(data.settings, year) ?? 0
   // Same pace sum as Stats, so both screens say the same thing.
   const pace = goalPace(done, goal, year)
-  return { year, done, goal, pct: goal ? done / goal : 0, ahead: pace.ahead, paceText: goal ? pace.text : 'No goal set for this year' }
+  const pages = usePageGoal(year)
+  return { year, done, goal, pct: goal ? done / goal : 0, ahead: pace.ahead, paceText: goal ? pace.text : 'No goal set for this year', pages }
+}
+
+/** Pages read in a year (listening converted at your rate) against that year's page goal. */
+export function usePageGoal(year: number) {
+  const { data } = useStore()
+  const slices = useReadingSlices()
+  const done = useMemo(() => Math.round(slices.filter((s) => s.year === year).reduce((n, s) => n + pageEquivalent(s, data.settings), 0)),
+    [slices, year, data.settings])
+  const goal = pageGoalFor(data.settings, year) ?? 0
+  const pace = goalPace(done, goal, year, new Date(), 'page')
+  return { done, goal, pct: goal ? done / goal : 0, ahead: pace.ahead, paceText: goal ? pace.text : 'No page goal for this year' }
 }
 
 // ── Series ────────────────────────────────────────────────────────────────────

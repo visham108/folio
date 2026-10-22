@@ -274,12 +274,20 @@ test('bulk edit and per-year goals', async ({ page }) => {
   // A past year gets its own goal; this year's is unchanged.
   const year = new Date().getFullYear()
   await page.goto(`/#/stats/${year - 1}`)
-  await page.getByRole('button', { name: /Set a goal|Change goal/ }).first().click()
-  await page.getByLabel(`Books to read in ${year - 1}`).fill('30')
+  await page.getByRole('button', { name: /Set goals|Change goals/ }).click()
+  await page.getByLabel('Books to finish').fill('30')
+  await page.getByLabel('Pages to read').fill('5000')
   await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.locator('.stat-hero-goal .ring-num')).toContainText('/30')
+  await expect(page.locator('.stat-hero-goal .ring-num').first()).toContainText('/30')
+  await expect(page.locator('.stat-hero-goal .ring-num').nth(1)).toContainText('/5K')
   await page.goto(`/#/stats/${year}`)
-  await expect(page.locator('.stat-hero-goal .ring-num')).toContainText('/12')
+  await expect(page.locator('.stat-hero-goal .ring-num').first()).toContainText('/12')
+  await expect(page.locator('.stat-hero-goal .ring-num').nth(1)).toContainText('/2K')
+
+  // Today shows both goals; the sidebar too (desktop).
+  await page.goto('/#/')
+  await expect(page.locator('.goal-dual .goal-row')).toHaveCount(2)
+  await expect(page.locator('.goal-dual')).toContainText(/of 2,000 pages/)
 
   expect(errors).toEqual([])
 })

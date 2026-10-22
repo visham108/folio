@@ -14,7 +14,7 @@ import { dailyActivity, pageEquivalent, summarize, undated, yearsWithData, type 
 import { goalFor, type Medium } from '../lib/types'
 import { compact, fmtDate, fmtDuration, fmtNumber, monthName, plural } from '../lib/util'
 import { useStore } from '../state/store'
-import { useCompletions, useReadingSlices } from './hooks'
+import { useCompletions, usePageGoal, useReadingSlices } from './hooks'
 
 type Metric = 'books' | 'pages' | 'hours' | 'combined'
 
@@ -83,6 +83,7 @@ export function Stats() {
   const charted = MEDIA.filter((m) => columns.some((c) => (c.parts[m.id] ?? 0) > 0))
   const goal = goalFor(settings, year)
   const goalPct = goal ? sum.books / goal : 0
+  const pg = usePageGoal(year)
   const isCurrent = year === new Date().getFullYear()
 
   if (!all.length) {
@@ -157,17 +158,32 @@ export function Stats() {
           )}
         </div>
         {!allTime && (
-          <div className="stat-hero-goal">
-            <button className="goal-ring-btn" onClick={() => setGoalOpen(true)} aria-label={goal ? `Goal for ${year}: ${goal} books. Change it` : `Set a goal for ${year}`}>
-              <Ring pct={goalPct} size={132} stroke={10}>
-                {goal ? <div className="ring-num">{sum.books}<small>/{goal}</small></div> : <div className="ring-num ring-empty">{sum.books}</div>}
-              </Ring>
-            </button>
-            <span className="muted small">
-              {!goal ? 'No goal for this year'
-                : goalPct >= 1 ? 'Goal reached ✦' : isCurrent ? `${goal - sum.books} to go` : `${Math.round(goalPct * 100)}% of goal`}
-            </span>
-            <button className="link small" onClick={() => setGoalOpen(true)}>{goal ? 'Change goal' : 'Set a goal'}</button>
+          <div className="stat-hero-goals">
+            <div className="stat-hero-goal">
+              <button className="goal-ring-btn" onClick={() => setGoalOpen(true)} aria-label={goal ? `Book goal for ${year}: ${sum.books} of ${goal}. Change it` : `Set a book goal for ${year}`}>
+                <Ring pct={goalPct} size={120} stroke={10}>
+                  {goal ? <div className="ring-num">{sum.books}<small>/{goal}</small></div> : <div className="ring-num ring-empty">{sum.books}</div>}
+                </Ring>
+              </button>
+              <span className="kicker">Books</span>
+              <span className="muted small">
+                {!goal ? 'No goal for this year'
+                  : goalPct >= 1 ? 'Goal reached ✦' : isCurrent ? `${goal - sum.books} to go` : `${Math.round(goalPct * 100)}% of goal`}
+              </span>
+            </div>
+            <div className="stat-hero-goal">
+              <button className="goal-ring-btn" onClick={() => setGoalOpen(true)} aria-label={pg.goal ? `Page goal for ${year}: ${pg.done} of ${pg.goal}. Change it` : `Set a page goal for ${year}`}>
+                <Ring pct={pg.pct} size={120} stroke={10}>
+                  {pg.goal ? <div className="ring-num sm">{compact(pg.done)}<small>/{compact(pg.goal)}</small></div> : <div className="ring-num ring-empty">{compact(pg.done)}</div>}
+                </Ring>
+              </button>
+              <span className="kicker">Pages</span>
+              <span className="muted small">
+                {!pg.goal ? 'No goal for this year'
+                  : pg.pct >= 1 ? 'Goal reached ✦' : isCurrent ? `${(pg.goal - pg.done).toLocaleString()} to go` : `${Math.round(pg.pct * 100)}% of goal`}
+              </span>
+            </div>
+            <button className="link small goals-change" onClick={() => setGoalOpen(true)}>{goal || pg.goal ? 'Change goals' : 'Set goals'}</button>
           </div>
         )}
         <div className="stat-hero-combined">

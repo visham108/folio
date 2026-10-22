@@ -6,6 +6,17 @@ import { mergeEntryFields } from './merge'
 import { titleSimilarity } from './match'
 import { isAllowedCoverUrl } from './util'
 
+// Book goals and page goals share one column: { "2026": 12, "pages": { "2026": 2000 } }.
+function splitGoals(raw: unknown): { goals: Record<string, number>; pageGoals: Record<string, number> } {
+  const goals: Record<string, number> = {}
+  let pageGoals: Record<string, number> = {}
+  for (const [k, v] of Object.entries((raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>)) {
+    if (k === 'pages' && v && typeof v === 'object') pageGoals = Object.fromEntries(Object.entries(v).filter(([, n]) => typeof n === 'number')) as Record<string, number>
+    else if (typeof v === 'number') goals[k] = v
+  }
+  return { goals, pageGoals }
+}
+
 const URL_ = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
@@ -199,7 +210,7 @@ export async function createCloudBackend(): Promise<Backend | null> {
         logs: logs.map(logFrom),
         shelves: shelves.map(shelfFrom),
         settings: p
-          ? { displayName: und(p.display_name), yearlyGoal: p.yearly_goal, goals: p.goals ?? {}, audioPagesPerHour: p.audio_pages_per_hour, theme: p.theme }
+          ? { displayName: und(p.display_name), yearlyGoal: p.yearly_goal, ...splitGoals(p.goals), audioPagesPerHour: p.audio_pages_per_hour, theme: p.theme }
           : { ...DEFAULT_SETTINGS, displayName: user.user_metadata?.full_name },
       }
     },
@@ -236,7 +247,7 @@ export async function createCloudBackend(): Promise<Backend | null> {
     deleteShelf: (id) => ok(sb.from('shelves').delete().eq('id', id)),
     saveSettings: (s: Settings) =>
       upsert('profiles', [{
-        id: user.id, display_name: s.displayName ?? null, yearly_goal: s.yearlyGoal, goals: s.goals ?? {},
+        id: user.id, display_name: s.displayName ?? null, yearly_goal: s.yearlyGoal, goals: { ...(s.goals ?? {}), pages: s.pageGoals ?? {} },
         audio_pages_per_hour: s.audioPagesPerHour, theme: s.theme, updated_at: new Date().toISOString(),
       }]),
     async saveMany(part) {

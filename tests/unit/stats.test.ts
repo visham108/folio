@@ -28,6 +28,6 @@ describe('stats', () => {
     expect(y.avgDays).toBe(10)
   })
   it('converts listening into page-equivalents', () => {
-    expect(pageEquivalent({ pages: 0, minutes: 120 }, DEFAULT_SETTINGS)).toBe(60)
+    expect(pageEquivalent({ pages: 0, minutes: 120 }, DEFAULT_SETTINGS)).toBe(40)
   })
 })

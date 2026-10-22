@@ -81,24 +81,11 @@ export function Home() {
       <Notices />
 
       <section className="hero-strip">
-        <button className="goal-card card" onClick={() => setGoalOpen(true)} aria-label={yp.goal ? `Reading goal: ${yp.done} of ${yp.goal} books. Change it` : 'Set a reading goal for this year'}>
-          <Ring pct={yp.pct} size={104} stroke={9}>
-            <div className="ring-num">{yp.goal ? <>{Math.round(Math.min(1, yp.pct) * 100)}<small>%</small></> : yp.done}</div>
-          </Ring>
-          <div>
-            <div className="kicker">Reading goal</div>
-            {yp.goal ? (
-              <>
-                <div className="goal-line"><b>{yp.done}</b> of {yp.goal} books</div>
-                <div className={`goal-pace ${yp.ahead >= 0 ? 'good' : ''}`}>{yp.paceText}</div>
-              </>
-            ) : (
-              <>
-                <div className="goal-line"><b>{yp.done}</b> {yp.done === 1 ? 'book' : 'books'} so far</div>
-                <div className="goal-pace">Tap to set a goal for {yp.year}</div>
-              </>
-            )}
-          </div>
+        <button className="goal-card goal-dual card" onClick={() => setGoalOpen(true)}
+          aria-label={`Reading goals for ${yp.year}: ${yp.goal ? `${yp.done} of ${yp.goal} books` : `${yp.done} books, no goal`}; ${yp.pages.goal ? `${yp.pages.done} of ${yp.pages.goal} pages` : `${yp.pages.done} pages, no goal`}. Change them`}>
+          <div className="kicker">Reading goals for {yp.year}</div>
+          <GoalRow pct={yp.pct} goal={yp.goal} done={yp.done} unit="book" ahead={yp.ahead} pace={yp.paceText} />
+          <GoalRow pct={yp.pages.pct} goal={yp.pages.goal} done={yp.pages.done} unit="page" ahead={yp.pages.ahead} pace={yp.pages.paceText} />
         </button>
         <GoalSheet year={yp.year} open={goalOpen} onClose={() => setGoalOpen(false)} />
         <div className="mini-stats">
@@ -226,6 +213,21 @@ export function Home() {
         </section>
       )}
       <ProgressSheet read={sheetRead && data.reads.find((r) => r.id === sheetRead.id)} open={!!sheetRead} finishing={finishing} onClose={() => setSheetRead(undefined)} />
+    </div>
+  )
+}
+
+/** One goal on the Today card: a ring with the percentage, the count and the pace. */
+function GoalRow({ pct, goal, done, unit, ahead, pace }: { pct: number; goal: number; done: number; unit: string; ahead: number; pace: string }) {
+  return (
+    <div className="goal-row">
+      <Ring pct={pct} size={72} stroke={7}>
+        <div className="ring-num sm">{goal ? <>{Math.round(Math.min(1, pct) * 100)}<small>%</small></> : compact(done)}</div>
+      </Ring>
+      <div>
+        <div className="goal-line"><b>{done.toLocaleString()}</b> {goal ? <>of {goal.toLocaleString()} {unit}s</> : <>{done === 1 ? unit : unit + 's'} so far</>}</div>
+        <div className={`goal-pace ${goal && ahead >= 0 ? 'good' : ''}`}>{goal ? pace : `No ${unit} goal: tap to set one`}</div>
+      </div>
     </div>
   )
 }
