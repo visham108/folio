@@ -150,7 +150,7 @@ export interface Settings {
   yearlyGoal: number
   /** A goal per year, e.g. { "2020": 30 }. 0 means no goal for that year. */
   goals?: Record<string, number>
-  /** Pages to read per year, e.g. { "2026": 2000 } (listening counts, converted). 0 means none. */
+  /** Pages to read per year, e.g. { "2026": 3600 } (listening counts, converted). 0 means none. */
   pageGoals?: Record<string, number>
   /** How many pages an hour of listening counts as when combining stats. */
   audioPagesPerHour: number
@@ -159,7 +159,7 @@ export interface Settings {
 
 /** Every year's goal until you set your own. */
 export const DEFAULT_GOAL = 12
-export const DEFAULT_PAGE_GOAL = 2000
+export const DEFAULT_PAGE_GOAL = 3600
 
 /** An hour of listening counts as 20 pages (a page every three minutes). */
 export const DEFAULT_SETTINGS: Settings = { yearlyGoal: DEFAULT_GOAL, audioPagesPerHour: 20, theme: 'system' }
@@ -171,7 +171,7 @@ export function goalFor(s: Settings, year: number): number | undefined {
   return DEFAULT_GOAL
 }
 
-/** The page goal for a year: what you set for it, otherwise 2,000. A goal you removed (0) means none. */
+/** The page goal for a year: what you set for it, otherwise 3,600 (about 12 books of 300 pages). A goal you removed (0) means none. */
 export function pageGoalFor(s: Settings, year: number): number | undefined {
   const set = s.pageGoals?.[String(year)]
   if (set != null) return set > 0 ? set : undefined

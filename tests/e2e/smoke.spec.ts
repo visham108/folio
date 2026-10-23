@@ -282,12 +282,12 @@ test('bulk edit and per-year goals', async ({ page }) => {
   await expect(page.locator('.stat-hero-goal .ring-num').nth(1)).toContainText('/5K')
   await page.goto(`/#/stats/${year}`)
   await expect(page.locator('.stat-hero-goal .ring-num').first()).toContainText('/12')
-  await expect(page.locator('.stat-hero-goal .ring-num').nth(1)).toContainText('/2K')
+  await expect(page.locator('.stat-hero-goal .ring-num').nth(1)).toContainText('/3.6K')
 
   // Today shows both goals; the sidebar too (desktop).
   await page.goto('/#/')
   await expect(page.locator('.goal-dual .goal-row')).toHaveCount(2)
-  await expect(page.locator('.goal-dual')).toContainText(/of 2,000 pages/)
+  await expect(page.locator('.goal-dual')).toContainText(/of 3,600 pages/)
 
   expect(errors).toEqual([])
 })

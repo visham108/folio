@@ -14,8 +14,8 @@ describe('yearly goals', () => {
     const u = { ...t, ...withGoal(t, 2020, 0) }
     expect(goalFor(u, 2020)).toBeUndefined()
   })
-  it('gives every year a 2,000-page goal until you set one, separately from books', () => {
-    expect(pageGoalFor(s, 2025)).toBe(2000)
+  it('gives every year a 3,600-page goal until you set one, separately from books', () => {
+    expect(pageGoalFor(s, 2025)).toBe(3600)
     const t = { ...s, ...withPageGoal(s, 2026, 3500) }
     expect(pageGoalFor(t, 2026)).toBe(3500)
     expect(goalFor(t, 2026)).toBe(12)

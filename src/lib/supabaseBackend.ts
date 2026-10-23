@@ -6,7 +6,7 @@ import { mergeEntryFields } from './merge'
 import { titleSimilarity } from './match'
 import { isAllowedCoverUrl } from './util'
 
-// Book goals and page goals share one column: { "2026": 12, "pages": { "2026": 2000 } }.
+// Book goals and page goals share one column: { "2026": 12, "pages": { "2026": 3600 } }.
 function splitGoals(raw: unknown): { goals: Record<string, number>; pageGoals: Record<string, number> } {
   const goals: Record<string, number> = {}
   let pageGoals: Record<string, number> = {}
