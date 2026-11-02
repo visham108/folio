@@ -1,11 +1,12 @@
 import { GitMerge, History, Search, ShieldCheck } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { CatalogueChange } from '../lib/backend'
 import type { Edition, Work } from '../lib/types'
 import { fmtDate, localIso } from '../lib/util'
 import { useStore } from '../state/store'
 import { Cover } from './Cover'
+import { findCandidates } from '../lib/match'
 import { fullTitle } from '../lib/mergePlan'
 import { MergeSheet } from './MergeSheet'
 
@@ -23,11 +24,32 @@ export function AdminPanel({ work, editions }: { work: Work; editions: Edition[]
   const [history, setHistory] = useState<CatalogueChange[] | null>(null)
   const [q, setQ] = useState('')
   const [results, setResults] = useState<Work[]>([])
-  const [target, setTarget] = useState<Work | null>(null)
+  // Other copies of this book from the shared catalogue, for the suggestions.
+  const [catalogue, setCatalogue] = useState<{ works: Work[]; editions: Edition[] }>({ works: [], editions: [] })
+  // The copies chosen to merge with this one.
+  const [picked, setPicked] = useState<Work[]>([])
+  const [merging, setMerging] = useState<Work[] | null>(null)
 
   useEffect(() => {
     store.backend?.history([work.id, ...editions.map((e) => e.id)]).then(setHistory).catch(() => setHistory([]))
   }, [work.id, editions.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setPicked([])
+    store.backend?.searchCatalog(work.title, work.authors).then(setCatalogue).catch(() => setCatalogue({ works: [], editions: [] }))
+  }, [work.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Likely duplicates: same ISBN, or a matching title and author, on your shelves or in the catalogue.
+  const suggestions = useMemo(() => {
+    const pool = [...store.data.works, ...catalogue.works.filter((w) => !store.works.has(w.id))].filter((w) => w.id !== work.id)
+    const eds = [...store.data.editions, ...catalogue.editions]
+    const isbns = editions.map((e) => e.isbn13 ?? e.isbn10).filter(Boolean)
+    const found = [
+      ...findCandidates({ title: work.title, subtitle: work.subtitle, authors: work.authors }, pool, eds, 6),
+      ...isbns.flatMap((isbn) => findCandidates({ title: '', authors: [], isbn }, pool, eds, 2)),
+    ]
+    return found.filter((c, i) => found.findIndex((x) => x.work.id === c.work.id) === i).sort((a, b) => b.score - a.score).slice(0, 6)
+  }, [work, editions, catalogue, store.data.works, store.data.editions]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (q.trim().length < 2) { setResults([]); return }
@@ -40,6 +62,21 @@ export function AdminPanel({ work, editions }: { work: Work; editions: Edition[]
     return () => clearTimeout(t)
   }, [q]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const togglePick = (w: Work) => setPicked((p) => (p.some((x) => x.id === w.id) ? p.filter((x) => x.id !== w.id) : [...p, w]))
+  const pickRow = (w: Work, reason?: string) => {
+    const on = picked.some((x) => x.id === w.id)
+    return (
+      <button className={`result pick ${on ? 'on' : ''}`} role="checkbox" aria-checked={on} onClick={() => togglePick(w)}>
+        <span className={`pick-box ${on ? 'on' : ''}`} aria-hidden />
+        <Cover work={w} size="xs" />
+        <div className="result-main">
+          <b>{fullTitle(w)}</b>
+          <span>{[w.authors.join(', '), store.entryByWork.has(w.id) && 'on your shelves', reason].filter(Boolean).join(' · ')}</span>
+        </div>
+      </button>
+    )
+  }
+
   const who = (id?: string) => (!id ? 'Unknown' : id === store.userId ? 'You' : 'Another reader')
 
   return (
@@ -51,22 +88,33 @@ export function AdminPanel({ work, editions }: { work: Work; editions: Edition[]
 
       <div className="admin-grid">
         <div>
-          <h3><GitMerge size={15} /> Merge a duplicate</h3>
-          <p className="muted small">Fold this book into another. Its editions, and every reader’s shelf entry and reading history, move to the book you choose.</p>
+          <h3><GitMerge size={15} /> Merge duplicates</h3>
+          <p className="muted small">Pick other copies of this book to fold into it. You can still choose which copy to keep before anything changes.</p>
+          {suggestions.length > 0 && (
+            <>
+              <h4 className="merge-head">Possible duplicates</h4>
+              <ul className="results compact">
+                {suggestions.map((c) => <li key={c.work.id}>{pickRow(c.work, c.reason)}</li>)}
+              </ul>
+            </>
+          )}
           <label className="search">
             <Search size={16} />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find the book to keep…" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={suggestions.length ? 'Find another copy…' : 'Find another copy of this book…'} />
           </label>
           <ul className="results compact">
-            {results.map((w) => (
-              <li key={w.id}>
-                <button className="result" onClick={() => setTarget(w)}>
-                  <Cover work={w} size="xs" />
-                  <div className="result-main"><b>{fullTitle(w)}</b><span>{w.authors.join(', ')}{store.entryByWork.has(w.id) ? ' · on your shelves' : ''}</span></div>
-                </button>
-              </li>
-            ))}
+            {results.filter((w) => !suggestions.some((c) => c.work.id === w.id)).map((w) => <li key={w.id}>{pickRow(w)}</li>)}
           </ul>
+          {picked.length > 0 && (
+            <div className="merge-pick-bar">
+              <span><b>{picked.length}</b> selected</span>
+              <button className="link" onClick={() => setPicked([])}>Clear</button>
+              <span className="grow" />
+              <button className="btn btn-primary sm" onClick={() => setMerging([work, ...picked])}>
+                <GitMerge size={14} /> Merge {picked.length === 1 ? 'it' : picked.length} into this book…
+              </button>
+            </div>
+          )}
         </div>
         <div>
           <h3><History size={15} /> Change history</h3>
@@ -86,8 +134,8 @@ export function AdminPanel({ work, editions }: { work: Work; editions: Edition[]
         </div>
       </div>
 
-      <MergeSheet dup={work} dupEditions={editions} target={target} onClose={() => setTarget(null)}
-        onMerged={(t) => nav(`/book/${t.id}`, { replace: true })} />
+      <MergeSheet books={merging} keepId={work.id} onClose={() => setMerging(null)}
+        onMerged={(kept) => { setPicked([]); if (kept.id !== work.id) nav(`/book/${kept.id}`, { replace: true }) }} />
     </section>
   )
 }

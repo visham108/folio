@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckSquare, Grid2x2, LibraryBig, List, Pencil, Plus, Search, Shuffle, Sparkles, Table2, Trash2, X } from 'lucide-react'
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckSquare, GitMerge, Grid2x2, LibraryBig, List, Pencil, Plus, Search, Shuffle, Sparkles, Table2, Trash2, X } from 'lucide-react'
 import { titleCase } from '../lib/titleCase'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -9,12 +9,13 @@ import { BOOK_DRAG, isBookDrag } from '../components/dragBook'
 import { LibraryTable } from '../components/LibraryTable'
 import { SpineShelf, spineHue } from '../components/SpineShelf'
 import { Cover } from '../components/Cover'
+import { MergeSheet } from '../components/MergeSheet'
 import { ConfirmSheet, Empty, Segmented, Sheet, Stars } from '../components/ui'
 import { fold } from '../lib/match'
 import { compareKeys, sortDef, SORTS, surnameKey, titleKey, type SortId, type SortKey } from '../lib/librarySort'
 import { progressInfo } from '../lib/progress'
 import { seriesSlug } from '../lib/series'
-import { FORMATS, STATUSES, mediumOf, type Entry, type Shelf } from '../lib/types'
+import { FORMATS, STATUSES, mediumOf, type Entry, type Shelf, type Work } from '../lib/types'
 import { fmtDate, fmtDuration, plural, uid } from '../lib/util'
 import { useStore } from '../state/store'
 import { useToast } from '../state/toast'
@@ -68,6 +69,9 @@ export function Library() {
   const [selecting, setSelecting] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkOpen, setBulkOpen] = useState(false)
+  // Merge the selected books into one (super admin only).
+  const [merging, setMerging] = useState<Work[] | null>(null)
+  const canMerge = store.isAdmin
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const stopSelecting = () => { setSelecting(false); setSelected(new Set()) }
 
@@ -425,10 +429,17 @@ export function Library() {
           </button>
           <span className="grow" />
           <button className="btn btn-ghost sm" onClick={stopSelecting}>Cancel</button>
+          {canMerge && (
+            <button className="btn btn-ghost sm" disabled={visibleSelected.length < 2} title={visibleSelected.length < 2 ? 'Select two or more copies of the same book' : undefined}
+              onClick={() => setMerging(visibleSelected.map((e) => store.works.get(e.workId)).filter((w): w is Work => !!w))}>
+              <GitMerge size={14} /> Merge
+            </button>
+          )}
           <button className="btn btn-primary sm" disabled={!visibleSelected.length} onClick={() => setBulkOpen(true)}><Pencil size={14} /> Edit</button>
         </div>
       )}
       <BulkEditSheet ids={visibleSelected.map((e) => e.id)} open={bulkOpen} onClose={() => setBulkOpen(false)} onDone={() => { setBulkOpen(false); stopSelecting() }} />
+      <MergeSheet books={merging} onClose={() => setMerging(null)} onMerged={stopSelecting} />
 
       <Sheet
         open={!!shelfEdit}

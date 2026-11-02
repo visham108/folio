@@ -99,3 +99,57 @@ export const FIELD_NAMES: Record<EdField | WorkField, string> = {
   note: 'Edition note', subtitle: 'Subtitle', series: 'Series', seriesIndex: 'Number in series', description: 'Description',
   genres: 'Genres', firstPublished: 'First published', originalLanguage: 'Original language',
 }
+
+/** One step of merging several books into one: each duplicate folds into the result of the last. */
+export interface ChainStep {
+  dup: Work
+  plan: MergePlan
+  /** The kept book's editions once this duplicate is folded in. */
+  after: Edition[]
+}
+
+/**
+ * Merging several duplicates into one book, in order, as merge_works() runs them: every step
+ * sees what the earlier ones left behind, so two duplicates' audiobooks become one copy.
+ */
+export function planChain(args: {
+  keep: Work; dups: Work[]; mode: MergeMode
+  editionsOf: (workId: string) => Edition[]
+  /** Your edition of a book, if it's on your shelves. */
+  myEditionOf: (workId: string) => string | undefined
+}): { steps: ChainStep[]; work: Work; editions: Edition[]; myEditionId?: string; workFilled: WorkField[] } {
+  let work = args.keep
+  let eds = args.editionsOf(args.keep.id)
+  let mine = args.myEditionOf(args.keep.id)
+  const steps: ChainStep[] = []
+  const workFilled: WorkField[] = []
+  for (const dup of args.dups) {
+    const dupEditions = args.editionsOf(dup.id)
+    const myDup = args.myEditionOf(dup.id)
+    const plan = planMerge({ dup, keep: work, dupEditions, keepEditions: eds, myKeepEditionId: mine, myDupEditionId: myDup })
+    const after = args.mode === 'combine'
+      ? [...eds, ...plan.moved].map((e) => plan.groups.find((g) => g.into.id === e.id)?.result ?? e)
+      : [...eds, ...dupEditions]
+    // Your shelf entry keeps the kept book's edition; if only the duplicate was on your shelves, its copy comes with it.
+    if (!mine && myDup) mine = args.mode === 'combine' ? plan.target.get(myDup) ?? myDup : myDup
+    steps.push({ dup, plan, after })
+    workFilled.push(...plan.workFilled.filter((f) => !workFilled.includes(f)))
+    work = plan.work
+    eds = after
+  }
+  return { steps, work, editions: eds, myEditionId: mine, workFilled }
+}
+
+const filledCount = (w: Work, eds: Edition[]) =>
+  WORK_FIELDS.filter((f) => !blank(w[f])).length + eds.reduce((n, e) => n + EDITION_FIELDS.filter((f) => !blank(e[f])).length, 0)
+
+/**
+ * Which of several copies to keep when nobody has said: the one on your shelves, then the one
+ * with the most details filled in, then the oldest.
+ */
+export function suggestKeep(books: Work[], editionsOf: (workId: string) => Edition[], onShelves: (workId: string) => boolean): Work | undefined {
+  return [...books].sort((a, b) =>
+    Number(onShelves(b.id)) - Number(onShelves(a.id))
+    || filledCount(b, editionsOf(b.id)) - filledCount(a, editionsOf(a.id))
+    || (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))[0]
+}

@@ -1294,3 +1294,20 @@ kbd { display: inline-flex; align-items: center; min-width: 20px; height: 20px; 
 .stat-hero-goals .stat-hero-goal { gap: 6px; }
 .goals-change { grid-column: 1 / -1; }
 @media (max-width: 640px) { .stat-hero-goals .stat-hero-goal { flex-direction: column; } }
+
+/* Picking copies to merge */
+.result.pick.on { background: var(--accent-soft); }
+.pick-box, .pick-dot { flex: none; width: 18px; height: 18px; border: 1.5px solid var(--muted); border-radius: 5px; display: grid; place-items: center; transition: background 0.15s, border-color 0.15s; }
+.pick-dot { border-radius: 50%; }
+.pick-box.on, .pick-dot.on { background: var(--accent); border-color: var(--accent); }
+.pick-box.on::after { content: ''; width: 9px; height: 5px; border: 2px solid #fff; border-top: 0; border-right: 0; transform: translateY(-1px) rotate(-45deg); }
+.pick-dot.on::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #fff; }
+.merge-pick-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 10px; padding: 10px 12px; border-radius: var(--r-md); background: var(--accent-soft); }
+.merge-pick-bar .grow { flex: 1; }
+.merge-keep { display: flex; flex-direction: column; gap: 6px; }
+.merge-keep-opt { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; text-align: left; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line); transition: background 0.15s, box-shadow 0.15s; }
+.merge-keep-opt:hover { background: var(--surface-2); }
+.merge-keep-opt.on { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.merge-keep-opt .pill { flex: none; }
+.merge-step { display: flex; flex-direction: column; gap: 10px; }
+.merge-step-title { margin: 6px 0 0; font: 600 0.95rem var(--sans); }

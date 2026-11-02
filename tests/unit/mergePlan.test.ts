@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planMerge } from '../../src/lib/mergePlan'
+import { planChain, planMerge, suggestKeep } from '../../src/lib/mergePlan'
 import type { Edition, Work } from '../../src/lib/types'
 
 const work = (id: string, p: Partial<Work> = {}): Work => ({ id, title: 'Sri Brhad-bhagavatamrta', authors: ['Sanatana Gosvami'], genres: [], createdAt: '2026-01-01', ...p })
@@ -59,5 +59,45 @@ describe('merge plan', () => {
     expect(p.dupEditions.map((e) => e.id)).toEqual(['dm', 'do'])
     const mineKept = planMerge({ dup, keep, dupEditions: [dupMine], keepEditions: [keepEd, older], myKeepEditionId: 'ke' })
     expect(mineKept.groups[0].into.id).toBe('ke')
+  })
+})
+
+describe('merging several copies at once', () => {
+  const keep = work('k')
+  const a = work('a', { description: 'From A' })
+  const b = work('b', { description: 'From B', firstPublished: 1990 })
+  const eds: Record<string, Edition[]> = {
+    k: [ed('kp', 'k', { format: 'paperback' })],
+    a: [ed('aa', 'a', { format: 'audiobook', durationMin: 600 })],
+    b: [ed('ba', 'b', { format: 'audiobook', narrators: ['N'] }), ed('bp', 'b', { format: 'paperback', pages: 300 })],
+  }
+  const editionsOf = (id: string) => eds[id] ?? []
+
+  it('folds each copy into what the earlier ones left: two audiobooks become one', () => {
+    const c = planChain({ keep, dups: [a, b], mode: 'combine', editionsOf, myEditionOf: (id) => (id === 'k' ? 'kp' : undefined) })
+    expect(c.steps.map((s) => s.dup.id)).toEqual(['a', 'b'])
+    expect(c.steps[0].plan.moved.map((e) => e.id)).toEqual(['aa'])
+    // b's audiobook folds into a's, which moved across in the first step; its paperback into yours.
+    expect(c.steps[1].plan.target.get('ba')).toBe('aa')
+    expect(c.steps[1].plan.target.get('bp')).toBe('kp')
+    expect(c.editions.map((e) => e.id)).toEqual(['kp', 'aa'])
+    expect(c.editions.find((e) => e.id === 'kp')?.pages).toBe(300)
+    expect(c.editions.find((e) => e.id === 'aa')?.narrators).toEqual(['N'])
+    // The first copy's description wins; the second only fills what's still blank.
+    expect(c.work.description).toBe('From A')
+    expect(c.work.firstPublished).toBe(1990)
+    expect(c.workFilled).toEqual(['description', 'firstPublished'])
+    expect(c.myEditionId).toBe('kp')
+  })
+
+  it('keeping both lists every edition, and brings your copy along if only a duplicate was yours', () => {
+    const c = planChain({ keep, dups: [a, b], mode: 'both', editionsOf, myEditionOf: (id) => (id === 'b' ? 'bp' : undefined) })
+    expect(c.editions.map((e) => e.id)).toEqual(['kp', 'aa', 'ba', 'bp'])
+    expect(c.myEditionId).toBe('bp')
+  })
+
+  it('suggests keeping the copy on your shelves, then the most complete one', () => {
+    expect(suggestKeep([keep, a, b], editionsOf, (id) => id === 'a')?.id).toBe('a')
+    expect(suggestKeep([keep, a, b], editionsOf, () => false)?.id).toBe('b')
   })
 })

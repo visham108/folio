@@ -628,3 +628,33 @@ test('the library opens on spines by default, first in the view picker', async (
   await expect(page.getByRole('radio', { name: 'Grid' })).toBeChecked()
   expect(errors).toEqual([])
 })
+
+test('select books in the library and merge them, choosing which to keep', async ({ page }, info) => {
+  const errors = watchErrors(page)
+  await sampleLibrary(page)
+  await openLibrary(page)
+  const n = await page.locator('.tile').count()
+  await page.getByRole('button', { name: 'Select' }).click()
+  // One book alone can't be merged.
+  await page.locator('.tile').nth(0).click()
+  await expect(page.getByRole('button', { name: 'Merge' })).toBeDisabled()
+  await page.locator('.tile').nth(1).click()
+  const second = (await page.locator('.tile-title').nth(1).innerText()).trim()
+  await page.getByRole('button', { name: 'Merge' }).click()
+
+  const sheet = page.getByRole('dialog', { name: 'Merge these books' })
+  const options = sheet.getByRole('radio', { name: /./ }).filter({ has: page.locator('.result-main') })
+  await expect(options).toHaveCount(2)
+  // The sample's books are all different: the sheet says so.
+  await expect(sheet.locator('.merge-warn')).toContainText('doesn’t look like the same book')
+  await page.waitForTimeout(700)
+  await page.screenshot({ path: `test-results/merge-sheet-${info.project.name}.png` })
+  // Keep the second book instead of the suggested one.
+  await options.filter({ hasText: second }).click()
+  await expect(options.filter({ hasText: second })).toHaveAttribute('aria-checked', 'true')
+  await sheet.getByRole('button', { name: /Merge and combine/ }).click()
+  await expect(page.locator('.tile')).toHaveCount(n - 1)
+  await expect(page.locator('.tile-title', { hasText: second })).toHaveCount(1)
+  await expect(page.locator('.select-bar')).toHaveCount(0)
+  expect(errors).toEqual([])
+})

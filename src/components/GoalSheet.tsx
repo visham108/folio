@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import { DEFAULT_GOAL, DEFAULT_PAGE_GOAL, goalFor, pageGoalFor, withGoal, withPageGoal } from '../lib/types'
 import { useStore } from '../state/store'
 import { useToast } from '../state/toast'
@@ -11,7 +11,8 @@ export function GoalSheet({ year, open, onClose }: { year: number; open: boolean
   const s = store.data.settings
   const [books, setBooks] = useState('')
   const [pages, setPages] = useState('')
-  useEffect(() => {
+  // Before the sheet paints, so a number typed straight away isn't overwritten.
+  useLayoutEffect(() => {
     if (!open) return
     setBooks(String(goalFor(s, year) ?? ''))
     setPages(String(pageGoalFor(s, year) ?? ''))
