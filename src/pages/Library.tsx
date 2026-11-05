@@ -236,9 +236,13 @@ export function Library() {
   // Typing a genre's name in the search offers it as a filter.
   const genreHints = !genre && fold(q).length >= 3 ? genres.filter((g) => fold(g.name).includes(fold(q))).slice(0, 4) : []
 
-  // Sorting by series or author: a heading over each run of books.
+  // Sorting by series or author: a heading over each run of books. Otherwise "All" is split
+  // into one shelf per pile, as on the spines.
   const groups = useMemo(() => {
-    if (!def.grouped) return null
+    if (!def.grouped) {
+      if (pile !== 'all') return null
+      return STATUSES.map((s) => ({ label: s.label, items: list.filter((e) => e.status === s.id) })).filter((g) => g.items.length)
+    }
     const label = (e: Entry) => {
       const w = works.get(e.workId)!
       switch (sort) {
@@ -256,9 +260,12 @@ export function Library() {
       else out.push({ label: l, items: [e] })
     }
     return out
-  }, [list, def.grouped, sort, works])
+  }, [list, def.grouped, sort, works, pile])
+  // Books in the order they're shown (by shelf, when split into shelves).
+  const shown = groups ? groups.flatMap((g) => g.items) : list
   const groupTitle = (label: string) =>
-    !label ? ({ series: 'Not in a series', genre: 'No genre', format: 'No edition', author: 'No author' } as Record<string, string>)[sort] ?? '—'
+    !def.grouped ? label
+      : !label ? ({ series: 'Not in a series', genre: 'No genre', format: 'No edition', author: 'No author' } as Record<string, string>)[sort] ?? '—'
       : sort === 'series' ? <Link to={`/series/${seriesSlug(label)}`} className="group-link">{label}</Link> : label
 
   // Selected books that are still in view (a search or pile change narrows what "all" means).
@@ -347,6 +354,7 @@ export function Library() {
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search title, author, genre, tag…" aria-label="Search your library" />
           {q && <button className="icon-btn" onClick={() => setQ('')} aria-label="Clear search"><X size={14} /></button>}
         </label>
+        <div className="toolbar-controls">
         <select className="select" value={format} onChange={(e) => setFormat(e.target.value as typeof format)} aria-label="Format">
           <option value="all">All formats</option>
           <option value="print">Print</option>
@@ -363,11 +371,11 @@ export function Library() {
           </select>
           <button className="btn btn-ghost sm sort-dir" onClick={() => saveSort({ id: sort, dir: dir === 1 ? -1 : 1 })}
             aria-label={`Order: ${def.orders[dir === 1 ? 0 : 1]}. Reverse`} title="Reverse the order">
-            {dir === 1 ? <ArrowUpNarrowWide size={15} /> : <ArrowDownWideNarrow size={15} />} <span>{def.orders[dir === 1 ? 0 : 1]}</span>
+            {dir === 1 ? <ArrowUpNarrowWide size={15} /> : <ArrowDownWideNarrow size={15} />} <span className="btn-text">{def.orders[dir === 1 ? 0 : 1]}</span>
           </button>
         </div>
-        {view !== 'table' && <button className={`btn btn-ghost sm ${selecting ? 'on' : ''}`} aria-pressed={selecting} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
-          <CheckSquare size={15} /> {selecting ? 'Done' : 'Select'}
+        {view !== 'table' && <button className={`btn btn-ghost sm ${selecting ? 'on' : ''}`} aria-pressed={selecting} aria-label={selecting ? 'Done' : 'Select'} title={selecting ? 'Done selecting' : 'Select books'} onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
+          <CheckSquare size={15} /> <span className="btn-text">{selecting ? 'Done' : 'Select'}</span>
         </button>}
         <Segmented
           size="sm"
@@ -381,6 +389,7 @@ export function Library() {
             { id: 'table', label: <Table2 size={15} aria-label="Table of every detail" /> },
           ]}
         />
+        </div>
       </div>
       {(genre || genreHints.length > 0) && (
         <div className="genre-bar">
@@ -436,7 +445,7 @@ export function Library() {
             <span className="trow-cell hide-mobile">Last finished</span>
             <span className="trow-cell">Rating</span>
           </div>
-          {list.map((e) => {
+          {shown.map((e) => {
             const w = works.get(e.workId)!
             const ed = store.editionOf(e)
             const g = groups?.find((x) => x.items[0] === e)

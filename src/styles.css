@@ -1319,3 +1319,30 @@ kbd { display: inline-flex; align-items: center; min-width: 20px; height: 20px; 
 .select.on { box-shadow: inset 0 0 0 1.5px var(--accent); }
 a.pill:hover { color: var(--accent-ink); }
 .chips-input input[aria-invalid] { color: var(--danger, #b3261e); text-decoration: underline wavy color-mix(in oklab, currentColor 50%, transparent); }
+
+/* Library toolbar: filters, sort and views stay on one row. */
+.toolbar { flex-wrap: nowrap; gap: 8px; }
+.toolbar .search { min-width: 160px; }
+.toolbar-controls { display: flex; align-items: center; gap: 8px; flex: none; min-width: 0; }
+.toolbar-controls > * { flex: none; }
+.toolbar .select { height: 40px; padding-left: 14px; padding-right: 28px; background-position: right 10px center; font-size: 0.88rem; width: 124px; text-overflow: ellipsis; }
+.toolbar .select[aria-label="Format"] { width: 116px; }
+.toolbar .btn.sm { height: 40px; }
+.toolbar .seg-sm button { height: 34px; padding: 0 10px; }
+.toolbar .btn-text { display: none; }
+.toolbar .btn.sm:has(.btn-text) { padding: 0 12px; }
+/* Narrower windows: the search takes its own line; filters, sort and views share the next. */
+@media (max-width: 1180px) {
+  .toolbar { flex-wrap: wrap; }
+  .toolbar .search { flex: 1 1 100%; }
+  .toolbar-controls { flex: 1 1 100%; }
+}
+/* Phones: that line scrolls sideways if need be, with the views first so they're always in reach. */
+@media (max-width: 720px) {
+  .toolbar-controls { overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 2px 16px; gap: 6px; }
+  .toolbar-controls::-webkit-scrollbar { display: none; }
+  .toolbar-controls > .seg { order: -1; }
+  .toolbar .select { width: 112px; padding-left: 12px; }
+  .toolbar .select[aria-label="Format"] { width: 122px; }
+  .toolbar .seg-sm button { height: 36px; padding: 0 9px; }
+}
