@@ -1,3 +1,4 @@
+import { canonicalGenres } from './genres'
 import { coreTitle, fold } from './match'
 import { cleanIsbn, isbn10to13 } from './util'
 
@@ -56,7 +57,7 @@ async function google(q: string, signal?: AbortSignal): Promise<LookupResult[]> 
       isbn10: ids.find((i) => i.type === 'ISBN_10')?.identifier,
       coverUrl: thumb ? thumb.replace('http://', 'https://').replace('&edge=curl', '') + '&fife=w600' : undefined,
       description: v.description,
-      genres: tidyGenres(v.categories),
+      genres: canonicalGenres(tidyGenres(v.categories), { title: v.title, subtitle: v.subtitle }),
       language: v.language,
     }
   })
@@ -80,7 +81,7 @@ async function openLibrary(q: string, signal?: AbortSignal): Promise<LookupResul
       isbn13: isbns.find((i) => i.length === 13),
       isbn10: isbns.find((i) => i.length === 10),
       coverUrl: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg` : undefined,
-      genres: tidyGenres((d.subject ?? []).slice(0, 8)),
+      genres: canonicalGenres(tidyGenres((d.subject ?? []).slice(0, 8)), { title: d.title, subtitle: d.subtitle }),
       language: d.language?.[0],
     }
   })

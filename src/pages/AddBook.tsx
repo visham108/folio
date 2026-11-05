@@ -1,3 +1,4 @@
+import { GENRE_HINT, GENRES, typedGenre } from '../lib/genres'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowLeft, Camera, Check, Loader2, PenLine, ScanLine, Search, Undo2, X } from 'lucide-react'
 import { nameCase, titleCase } from '../lib/titleCase'
@@ -345,7 +346,7 @@ function FormStep({ work, setWork, edition, setEdition, onBack }: {
               <Field label="Subtitle" className="span-2"><input className="input" value={work.subtitle ?? ''} onChange={(e) => setWork({ ...work, subtitle: e.target.value || undefined })} onBlur={(e) => setWork({ ...work, subtitle: titleCase(e.target.value) || undefined })} /></Field>
               <Field label="Series"><input className="input" value={work.series ?? ''} onChange={(e) => setWork({ ...work, series: e.target.value || undefined })} onBlur={(e) => setWork({ ...work, series: titleCase(e.target.value) || undefined })} /></Field>
               <Field label="#"><input className="input" inputMode="decimal" aria-label="Number in series" value={indexText} onChange={(e) => setIndexText(e.target.value)} /></Field>
-              <Field label="Genres" className="span-2"><Chips value={work.genres} onChange={(genres) => setWork({ ...work, genres })} normalize={titleCase} placeholder="e.g. Fantasy, Memoir" suggestions={[...new Set(store.data.works.flatMap((w) => w.genres))]} /></Field>
+              <Field label="Genres" className="span-2" hint={GENRE_HINT}><Chips value={work.genres} onChange={(genres) => setWork({ ...work, genres })} normalize={typedGenre} placeholder="e.g. Biography & Memoir" suggestions={[...GENRES]} /></Field>
               <Field label="First published"><input className="input" inputMode="numeric" value={work.firstPublished ?? ''} onChange={(e) => setWork({ ...work, firstPublished: parseInt(e.target.value, 10) || undefined })} /></Field>
             </div>
           </section>

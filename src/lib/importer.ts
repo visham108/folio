@@ -1,3 +1,4 @@
+import { canonicalGenres } from './genres'
 import { coreTitle, findCandidates, fold } from './match'
 import { nameCase, titleCase } from './titleCase'
 import { MOODS, type Edition, type Entry, type Format, type Read, type ReadState, type Shelf, type Snapshot, type Status, type Work } from './types'
@@ -596,7 +597,7 @@ export function buildImport(
       const firstYear = parseInt(one(r, 'firstPublished'), 10) || parseInt(one(r, 'firstPublished').slice(-4), 10) || undefined
       work = {
         id: uid(), title, subtitle, authors, series: series && tidy(series, titleCase), seriesIndex,
-        genres: many(r, 'genres').flatMap(splitList).map((g) => tidy(g, titleCase)).slice(0, 12),
+        genres: canonicalGenres(many(r, 'genres').flatMap(splitList), { title, subtitle }),
         firstPublished: firstYear, createdAt: nowIso(),
       }
       addWork(work)

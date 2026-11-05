@@ -101,7 +101,8 @@ describe('full CSV round trip', () => {
   it('keeps the book-level details', () => {
     expect(entry('Piranesi')).toMatchObject({ status: 'read', rating: 4.5, favorite: true, owned: true, tags: ['Comfort'] })
     expect(back.shelves.map((s) => s.name)).toEqual(['Book Club'])
-    expect(work('Piranesi')).toMatchObject({ genres: ['Fantasy'], firstPublished: 2020 })
+    // Genres come back in Folio's set.
+    expect(work('Piranesi')).toMatchObject({ genres: ['Fiction & Fantasy'], firstPublished: 2020 })
     expect(entry('Piranesi').addedAt.slice(0, 10)).toBe('2020-01-05')
   })
   it('keeps half stars, subtitles and series numbers', () => {

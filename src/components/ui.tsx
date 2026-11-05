@@ -182,7 +182,10 @@ export function Chips({ value, onChange, placeholder, suggestions = [], normaliz
   const [text, setText] = useState('')
   const listId = useId()
   const commit = (raw = text) => {
-    const t = normalize(raw.trim().replace(/,$/, ''))
+    const r = raw.trim().replace(/,$/, '')
+    const t = normalize(r)
+    // Not something this field takes (a genre outside Folio's set): leave it there to change.
+    if (r && !t) { setText(r); return }
     if (t && !value.includes(t)) onChange([...value, t])
     setText('')
   }
@@ -196,6 +199,7 @@ export function Chips({ value, onChange, placeholder, suggestions = [], normaliz
       ))}
       <input
         value={text}
+        aria-invalid={!!text.trim() && !normalize(text.trim().replace(/,$/, '')) ? true : undefined}
         list={suggestions.length ? listId : undefined}
         placeholder={value.length ? '' : placeholder}
         onChange={(e) => (e.target.value.endsWith(',') ? commit(e.target.value) : setText(e.target.value))}

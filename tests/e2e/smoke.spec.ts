@@ -669,7 +669,7 @@ test('browse by genre: a menu, a hint while searching, and genres on a book link
   const [, name, n] = first.match(/^(.*) \((\d+)\)$/)!
   await genre.selectOption(name)
   await expect(page.locator('.tile')).toHaveCount(+n)
-  await expect(page).toHaveURL(new RegExp(`genre=${name.replace(/ /g, "\\+")}`))
+  await expect.poll(() => new URLSearchParams(page.url().split('?')[1] ?? '').get('genre')).toBe(name)
   await expect(page.locator('.eyebrow').first()).toContainText(`${name} · ${n} book`)
   // The genre stays when you change piles; the chip clears it.
   await page.locator('.pile', { hasText: /^Reading/ }).first().click()

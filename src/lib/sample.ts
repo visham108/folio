@@ -1,3 +1,4 @@
+import { canonicalGenres } from './genres'
 import type { Edition, Entry, LogPoint, Read, Shelf, Snapshot, Work } from './types'
 import { mediumOf } from './types'
 import { nowIso, uid } from './util'
@@ -93,7 +94,7 @@ export function sampleLibrary(): Partial<Snapshot> {
   const printEd: Edition[] = []
   const audioEd: (Edition | undefined)[] = []
   for (const [title, author, year, pages, isbn, genres, audio, extra] of BOOKS) {
-    const w: Work = { id: uid(), title, authors: [author], firstPublished: year, genres: genres.split(','), createdAt: t, ...extra }
+    const w: Work = { id: uid(), title, authors: [author], firstPublished: year, genres: canonicalGenres(genres.split(','), { title }), createdAt: t, ...extra }
     works.push(w)
     const cover = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`
     const pe: Edition = { id: uid(), workId: w.id, format: r() > 0.5 ? 'paperback' : 'hardcover', pages, isbn13: isbn, narrators: [], translators: extra?.originalLanguage ? ['Ken Liu'] : [], coverUrl: cover, createdAt: t }

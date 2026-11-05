@@ -1,3 +1,4 @@
+import { GENRE_HINT, GENRES, typedGenre } from '../lib/genres'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   ArrowLeft, BookMarked, Lock, Check, ChevronDown, Headphones, Heart, Library as LibIcon, Pencil, Plus, RotateCcw, Tablet, Trash2,
@@ -578,7 +579,7 @@ function WorkEditor({ open, onClose, workId }: { open: boolean; onClose: () => v
         <Field label="Number in series" hint={indexBad ? 'Use a number, like 2 or 2.5' : undefined}><input className="input" inputMode="decimal" value={indexText} onChange={(e) => setIndexText(e.target.value)} /></Field>
         <Field label="First published"><input className="input" inputMode="numeric" value={d.firstPublished ?? ''} onChange={(e) => setD({ ...d, firstPublished: parseInt(e.target.value) || undefined })} /></Field>
         <Field label="Original language"><input className="input" value={d.originalLanguage ?? ''} onChange={(e) => setD({ ...d, originalLanguage: e.target.value || undefined })} /></Field>
-        <Field label="Genres" className="span-2"><Chips value={d.genres} onChange={(genres) => setD({ ...d, genres })} normalize={titleCase} /></Field>
+        <Field label="Genres" className="span-2" hint={GENRE_HINT}><Chips value={d.genres} onChange={(genres) => setD({ ...d, genres })} normalize={typedGenre} suggestions={[...GENRES]} placeholder="e.g. Biography & Memoir" /></Field>
         <Field label="Description" className="span-2"><textarea className="input" rows={4} value={d.description ?? ''} onChange={(e) => setD({ ...d, description: e.target.value || undefined })} /></Field>
       </div>
     </Sheet>

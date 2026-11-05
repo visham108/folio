@@ -1318,3 +1318,4 @@ kbd { display: inline-flex; align-items: center; min-width: 20px; height: 20px; 
 .genre-bar .pill i { font-style: normal; color: var(--muted); font-size: 0.75rem; }
 .select.on { box-shadow: inset 0 0 0 1.5px var(--accent); }
 a.pill:hover { color: var(--accent-ink); }
+.chips-input input[aria-invalid] { color: var(--danger, #b3261e); text-decoration: underline wavy color-mix(in oklab, currentColor 50%, transparent); }

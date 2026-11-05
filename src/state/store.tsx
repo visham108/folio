@@ -1,3 +1,4 @@
+import { canonicalGenres } from '../lib/genres'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Backend, IdRemap } from '../lib/backend'
 import { createLocalBackend, LOCAL_CHANNEL } from '../lib/localBackend'
@@ -389,7 +390,7 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
     addBook(b) {
       const t = nowIso()
       const existing = b.work.id ? works.get(b.work.id) ?? (b.inCatalogue ? (b.work as Work) : undefined) : undefined
-      const work: Work = existing ?? { ...b.work, id: b.work.id ?? uid(), createdAt: t, createdBy: userId }
+      const work: Work = existing ?? { ...b.work, genres: canonicalGenres(b.work.genres ?? [], b.work), id: b.work.id ?? uid(), createdAt: t, createdBy: userId }
       const knownEdition = b.edition.id ? editions.get(b.edition.id) ?? (b.inCatalogue ? ({ ...b.edition, workId: work.id } as Edition) : undefined) : undefined
       const edition: Edition = knownEdition
         ? knownEdition
@@ -427,7 +428,9 @@ export function StoreProvider({ children, onError }: { children: ReactNode; onEr
       return entry
     },
 
-    saveWork(w) {
+    saveWork(given) {
+      // Genres always land in Folio's set, however they were entered.
+      const w = { ...given, genres: canonicalGenres(given.genres, given) }
       upsertIn('works', w)
       persist((b) => b.saveWork(w))
     },
