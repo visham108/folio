@@ -1311,3 +1311,10 @@ kbd { display: inline-flex; align-items: center; min-width: 20px; height: 20px; 
 .merge-keep-opt .pill { flex: none; }
 .merge-step { display: flex; flex-direction: column; gap: 10px; }
 .merge-step-title { margin: 6px 0 0; font: 600 0.95rem var(--sans); }
+
+/* Genre filter */
+.genre-bar { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 14px; }
+.genre-bar .pill { display: inline-flex; align-items: center; gap: 5px; }
+.genre-bar .pill i { font-style: normal; color: var(--muted); font-size: 0.75rem; }
+.select.on { box-shadow: inset 0 0 0 1.5px var(--accent); }
+a.pill:hover { color: var(--accent-ink); }

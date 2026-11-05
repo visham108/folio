@@ -153,7 +153,7 @@ export function BookPage() {
               {edition?.narrators.length ? <span>Narrated by {edition.narrators.join(', ')}</span> : null}
               {work.firstPublished && <span>First published {work.firstPublished}</span>}
             </div>
-            {work.genres.length > 0 && <div className="genres">{work.genres.map((g) => <span key={g} className="pill">{g}</span>)}</div>}
+            {work.genres.length > 0 && <div className="genres">{work.genres.map((g) => <Link key={g} to={`/library?genre=${encodeURIComponent(g)}`} className="pill" title={`Your ${g} books`}>{g}</Link>)}</div>}
 
             <div className="book-actions">
               <div className="status-wrap" ref={statusRef}>

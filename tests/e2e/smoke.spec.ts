@@ -658,3 +658,35 @@ test('select books in the library and merge them, choosing which to keep', async
   await expect(page.locator('.select-bar')).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('browse by genre: a menu, a hint while searching, and genres on a book link back', async ({ page }) => {
+  const errors = watchErrors(page)
+  await sampleLibrary(page)
+  await openLibrary(page)
+  const genre = page.locator('select[aria-label="Genre"]')
+  // The menu lists the commonest genre first, with its count.
+  const first = (await genre.locator('option').nth(1).innerText()).trim()
+  const [, name, n] = first.match(/^(.*) \((\d+)\)$/)!
+  await genre.selectOption(name)
+  await expect(page.locator('.tile')).toHaveCount(+n)
+  await expect(page).toHaveURL(new RegExp(`genre=${name.replace(/ /g, "\\+")}`))
+  await expect(page.locator('.eyebrow').first()).toContainText(`${name} · ${n} book`)
+  // The genre stays when you change piles; the chip clears it.
+  await page.locator('.pile', { hasText: /^Reading/ }).first().click()
+  await expect(page).toHaveURL(/library\/reading\?genre=/)
+  await page.locator('.genre-bar .pill').click()
+  await expect(page).not.toHaveURL(/genre=/)
+
+  // Typing a genre's name offers it as a filter.
+  await openLibrary(page)
+  await page.getByLabel('Search your library').fill(name.slice(0, 5))
+  await page.locator('.genre-bar .pill', { hasText: `Only ${name}` }).click()
+  await expect(page.locator('.tile')).toHaveCount(+n)
+
+  // A book's genres take you to your other books in that genre.
+  await page.locator('.tile').first().click()
+  await page.locator('.genres a.pill', { hasText: name }).click()
+  await expect(page.locator('.tile')).toHaveCount(+n)
+  await page.screenshot({ path: `test-results/genre-filter.png` })
+  expect(errors).toEqual([])
+})

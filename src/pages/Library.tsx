@@ -1,8 +1,8 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckSquare, GitMerge, Grid2x2, LibraryBig, List, Pencil, Plus, Search, Shuffle, Sparkles, Table2, Trash2, X } from 'lucide-react'
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, CheckSquare, GitMerge, Grid2x2, Tag, LibraryBig, List, Pencil, Plus, Search, Shuffle, Sparkles, Table2, Trash2, X } from 'lucide-react'
 import { titleCase } from '../lib/titleCase'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { BookTile } from '../components/BookTile'
 import { BulkEditSheet } from '../components/BulkEdit'
 import { BOOK_DRAG, isBookDrag } from '../components/dragBook'
@@ -34,6 +34,13 @@ export function Library() {
   const store = useStore()
   const { data, works, readsByEntry } = store
   const [q, setQ] = useState('')
+  // A genre narrows any pile ("Philosophy I want to read"); it lives in the address so it can be linked to.
+  const [params, setParams] = useSearchParams()
+  const genre = params.get('genre') ?? ''
+  const setGenre = (g: string) => setParams(g ? { genre: g } : {}, { replace: true })
+  const inGenre = (e: Entry) => !genre || !!works.get(e.workId)?.genres.some((g) => fold(g) === fold(genre))
+  // Moving between piles keeps the genre.
+  const goTo = (path: string) => nav(genre ? `${path}?genre=${encodeURIComponent(genre)}` : path)
   // Your sort is remembered: { id, dir }.
   const [sortPref, setSortPref] = useState<{ id: SortId; dir: 1 | -1 }>(() => {
     try {
@@ -134,21 +141,21 @@ export function Library() {
 
   const counts = useMemo(() => {
     // Counted the same way as the list below (books whose details are loaded), so they agree.
-    const shown = data.entries.filter((e) => works.has(e.workId))
+    const shown = data.entries.filter((e) => works.has(e.workId) && inGenre(e))
     const c: Record<string, number> = { all: shown.length }
     for (const e of shown) {
       c[e.status] = (c[e.status] ?? 0) + 1
       if (e.favorite) c.favorites = (c.favorites ?? 0) + 1
       for (const s of e.shelfIds) c[s] = (c[s] ?? 0) + 1
     }
-    for (const [id, set] of smartMembers) c[id] = set.size
+    for (const [id, set] of smartMembers) c[id] = shown.filter((e) => set.has(e.id)).length
     return c
-  }, [data.entries, works, smartMembers])
+  }, [data.entries, works, smartMembers, genre]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const lastFinished = (e: Entry) =>
     (readsByEntry.get(e.id) ?? []).filter((r) => r.finishedOn).map((r) => r.finishedOn!).sort().pop() ?? ''
 
-  const list = useMemo(() => {
+  const listed = useMemo(() => {
     const needle = fold(q)
     let xs = data.entries.filter((e) => {
       if (pile === 'all') return true
@@ -157,6 +164,15 @@ export function Library() {
       if (pile === 'favorites') return e.favorite
       return e.status === pile
     })
+    // Genres to choose from: those in this pile, most books first.
+    const genreCounts = new Map<string, { name: string; n: number }>()
+    for (const e of xs) for (const g of works.get(e.workId)?.genres ?? []) {
+      const k = fold(g)
+      const cur = genreCounts.get(k)
+      if (cur) cur.n++
+      else genreCounts.set(k, { name: g, n: 1 })
+    }
+    xs = xs.filter(inGenre)
     // A format matches your edition, or any edition you've read it in (a print book you listened to counts as audio).
     if (format !== 'all') {
       xs = xs.filter((e) => mediumOf(store.editionOf(e)?.format) === format ||
@@ -208,9 +224,17 @@ export function Library() {
     const keys = new Map(xs.map((e) => [e.id, works.has(e.workId) ? keyOf[sort](e) : undefined]))
     // Ties (and books with no value, which always go last) fall back to the title.
     const cmp = (a: Entry, b: Entry) => compareKeys(keys.get(a.id), keys.get(b.id), dir) || compareKeys([titleKey(w(a).title)], [titleKey(w(b).title)], 1)
-    return xs.filter((e) => works.has(e.workId)).sort(cmp)
+    const sorted = xs.filter((e) => works.has(e.workId)).sort(cmp)
+    const genreList = [...genreCounts.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name))
+    return { sorted, genreList }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.entries, data.logs, pile, shelf, smart, smartMembers, q, sort, dir, format, works, readsByEntry, data.settings.audioPagesPerHour])
+  }, [data.entries, data.logs, pile, shelf, smart, smartMembers, q, sort, dir, format, genre, works, readsByEntry, data.settings.audioPagesPerHour])
+  const list = listed.sorted
+  // The chosen genre stays in the menu even if this pile has none of it.
+  const genres = genre && !listed.genreList.some((g) => fold(g.name) === fold(genre)) ? [{ name: genre, n: 0 }, ...listed.genreList] : listed.genreList
+  const genreName = genres.find((g) => fold(g.name) === fold(genre))?.name ?? genre
+  // Typing a genre's name in the search offers it as a filter.
+  const genreHints = !genre && fold(q).length >= 3 ? genres.filter((g) => fold(g.name).includes(fold(q))).slice(0, 4) : []
 
   // Sorting by series or author: a heading over each run of books.
   const groups = useMemo(() => {
@@ -278,7 +302,7 @@ export function Library() {
     <div className="page">
       <header className="page-head row">
         <div>
-          <p className="eyebrow">{shelf ? 'Shelf · ' : ''}{list.length} {list.length === 1 ? 'book' : 'books'}</p>
+          <p className="eyebrow">{shelf ? 'Shelf · ' : ''}{genre ? `${genreName} · ` : ''}{list.length} {list.length === 1 ? 'book' : 'books'}</p>
           <h1 className="display">{title}</h1>
         </div>
         <div className="head-actions">
@@ -294,7 +318,7 @@ export function Library() {
             key={p.id}
             aria-current={pile === p.id ? 'page' : undefined}
             className={`pile ${pile === p.id ? 'on' : ''} ${droppable(p.id) ? 'droppable' : ''} ${dragOver === p.id ? 'drop-over' : ''}`}
-            onClick={() => nav(p.id === 'all' ? '/library' : `/library/${p.id}`)}
+            onClick={() => goTo(p.id === 'all' ? '/library' : `/library/${p.id}`)}
             {...dropProps(p.id)}
           >
             {pile === p.id && <motion.span layoutId="pile-pill" className="pile-pill" transition={{ type: 'spring', stiffness: 500, damping: 40 }} />}
@@ -308,7 +332,7 @@ export function Library() {
             key={p.id}
             aria-current={pile === p.id ? 'page' : undefined}
             className={`pile smart ${pile === p.id ? 'on' : ''}`}
-            onClick={() => nav(`/library/${p.id}`)}
+            onClick={() => goTo(`/library/${p.id}`)}
           >
             {pile === p.id && <motion.span layoutId="pile-pill" className="pile-pill" transition={{ type: 'spring', stiffness: 500, damping: 40 }} />}
             <span className="pile-label"><Sparkles size={12} /> {p.label}{counts[p.id] ? <i>{counts[p.id]}</i> : null}</span>
@@ -328,6 +352,10 @@ export function Library() {
           <option value="print">Print</option>
           <option value="ebook">Ebook</option>
           <option value="audio">Audio</option>
+        </select>
+        <select className={`select ${genre ? 'on' : ''}`} value={genreName} onChange={(e) => setGenre(e.target.value)} aria-label="Genre">
+          <option value="">All genres</option>
+          {genres.map((g) => <option key={g.name} value={g.name}>{g.name} ({g.n})</option>)}
         </select>
         <div className="sort-ctl">
           <select className="select" value={sort} onChange={(e) => setSort(e.target.value as SortId)} aria-label="Sort">
@@ -354,11 +382,25 @@ export function Library() {
           ]}
         />
       </div>
+      {(genre || genreHints.length > 0) && (
+        <div className="genre-bar">
+          {genre ? (
+            <button className="pill toggle on" onClick={() => setGenre('')} aria-label={`Showing ${genreName} only. Show every genre`}>
+              <Tag size={12} /> {genreName} <X size={12} />
+            </button>
+          ) : genreHints.map((g) => (
+            <button key={g.name} className="pill toggle" onClick={() => { setGenre(g.name); setQ('') }}>
+              <Tag size={12} /> Only {g.name} <i>{g.n}</i>
+            </button>
+          ))}
+        </div>
+      )}
 
       {list.length === 0 ? (
-        <Empty title={!known ? 'Shelf not found' : q || format !== 'all' ? 'No matches' : 'Nothing here yet'}>
+        <Empty title={!known ? 'Shelf not found' : q || format !== 'all' || genre ? 'No matches' : 'Nothing here yet'}>
           {!known ? <p>It may have been deleted. <Link className="link" to="/library">Back to your library</Link></p>
-            : q || format !== 'all' ? <p>Try a different search or format.</p>
+            : genre ? <p>None of these are {genreName}. <button className="link" onClick={() => setGenre('')}>Show every genre</button></p>
+              : q || format !== 'all' ? <p>Try a different search or format.</p>
               : <p>{emptyCopy(pile, !!shelf, !!smart)}</p>}
         </Empty>
       ) : view === 'table' ? (
